@@ -16,6 +16,10 @@ REALNAME = "TNNT Reporting bot (" + SERVERTAG + ")"
 BOTDIR = "/opt/tnntbot"
 # file containing the nickserv password for NICK
 PWFILE = BOTDIR + "/pw"
+# file containing OAuth info for twitter.
+# see http://mike.verdone.ca/twitter/ fir details
+# leave this out to disable twitter
+TWITAUTH = BOTDIR + "/.twitter_oauth"
 
 # file/web paths for dumplogs and ttyrecs.
 # subfolders are still hardcoded in the main bot.

@@ -62,7 +62,7 @@ try: from botconf import DCBRIDGE
 except: DCBRIDGE = None
 try: from botconf import TEST
 except: TEST = False
-try: from botconf import TWIT
+try: from botconf import TWITAUTH
 except: TWIT = False
 try:
     from botconf import REMOTES
@@ -84,6 +84,19 @@ except: CONFIGJSON = "config.json" # assume current directory
 # need to parse out the comments. Thses must start with '# ' or '#-'
 # because my regexp is dumb
 config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
+
+# twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
+# pip install twitter
+# set TWIT to false to prevent tweeting
+TWIT = True
+try:
+    from botconf import TWITAUTH
+except:
+    TWIT = False
+try:
+    from twitter import Twitter, OAuth
+except:
+    TWIT = False
 
 # some lookup tables for formatting messages
 # these are not yet in conig.json
@@ -180,8 +193,7 @@ class DeathBotProtocol(irc.IRCClient):
         password = "NotTHEPassword"
     if TWIT:
        try:
-           #TODO hardcoded path here. Fix.
-           gibberish_that_makes_twitter_work = open("/opt/NotOracle/.twitter_oauth","r").read().strip().split("\n")
+           gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
            twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
        except:
            TWIT = False
