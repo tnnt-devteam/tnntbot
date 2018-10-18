@@ -55,6 +55,6 @@ REMOTES = { "hdf-eu": ("eu.hardfought.org", "tnnt-eu", "/var/www/xlogs-eu"),
 TEST = True
 
 # tournament and scoreboard related stuff:
-YEAR = 2018
+YEAR = "2018"
 CONFIGJSON = BOTDIR + "/config.json" # specify full path here
 SCOREBOARDJSON = BOTDIR + "/scoreboard.json" # specify full path here
