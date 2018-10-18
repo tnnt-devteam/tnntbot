@@ -52,7 +52,7 @@ import glob     # for matching in !whereis
 import json     # for tournament scoreboard things
 
 from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
-from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, LOGROOT, ADMIN, YEAR
+from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
 from tnnt.botconf import SERVERTAG
 try: from tnnt.botconf import SPAMCHANELS
 except: SPAMCHANNELS = CHANNELS
@@ -72,6 +72,10 @@ try:
 except:
     SLAVE = False #if we have no master we (definitely) are the master
     MASTERS = []
+try:
+    from tnnt.botconf import LOGROOT
+except:
+    LOGROOT = None
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
@@ -220,12 +224,13 @@ class DeathBotProtocol(irc.IRCClient):
         logday = time.strftime("%d")
         for c in CHANNELS:
             activity[c] = 0
-            chanLogName[c] = LOGROOT + c + time.strftime("-%Y-%m-%d.log")
-            try:
-                chanLog[c] = open(chanLogName[c],'a')
-            except:
-                chanLog[c] = None
-            if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
+            if LOGROOT:
+                chanLogName[c] = LOGROOT + c + time.strftime("-%Y-%m-%d.log")
+                try:
+                    chanLog[c] = open(chanLogName[c],'a')
+                except:
+                    chanLog[c] = None
+                if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
 
     xlogfiles = {filepath.FilePath(FILEROOT+"tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.txt")}
     livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
@@ -470,6 +475,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.msg("NickServ", "identify " + nn + " " + self.password)
 
     def logRotate(self):
+        if not LOGROOT: return
         self.logday = time.strftime("%d")
         for c in CHANNELS:
             if self.chanLog[c]: self.chanLog[c].close()
