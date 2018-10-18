@@ -469,7 +469,8 @@ class DeathBotProtocol(irc.IRCClient):
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason
-        if not SLAVE: for c in CHANNELS: self.join(c)
+        if not SLAVE:
+            for c in CHANNELS: self.join(c)
         if (self.nickname != NICK):
             self.setNick(NICK)
 
