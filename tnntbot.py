@@ -2,13 +2,11 @@
 
 *** THIS IS THE TNNT BOT ***
 
-beholder.py - a game-reporting and general services IRC bot for
-              the hardfought.org NetHack server.
-
-tnnt branch (2018) - adaptation specifically for the tnnt tournament
+tnntbot.py - a game-reporting and general services IRC bot for
+              The November Nethack Tournament
 
 Copyright (c) 2018 A. Thomson, K. Simpson
-Based on original code from:
+Based loosely on original code from:
 deathbot.py - a game-reporting IRC bot for AceHack
 Copyright (c) 2011, Edoardo Spadolini
 All rights reserved.
@@ -53,31 +51,31 @@ import random   # for !rng and friends
 import glob     # for matching in !whereis
 import json     # for tournament scoreboard things
 
-from botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
-from botconf import PWFILE, FILEROOT, WEBROOT, LOGROOT, ADMIN, YEAR
-from botconf import SERVERTAG
-try: from botconf import SPAMCHANELS
+from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
+from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, LOGROOT, ADMIN, YEAR
+from tnnt.botconf import SERVERTAG
+try: from tnnt.botconf import SPAMCHANELS
 except: SPAMCHANNELS = CHANNELS
-try: from botconf import DCBRIDGE
+try: from tnnt.botconf import DCBRIDGE
 except: DCBRIDGE = None
-try: from botconf import TEST
+try: from tnnt.botconf import TEST
 except: TEST = False
-try: from botconf import TWITAUTH
+try: from tnnt.botconf import TWITAUTH
 except: TWIT = False
 try:
-    from botconf import REMOTES
+    from tnnt.botconf import REMOTES
 except:
     SLAVE = True #if we have no slaves, we (probably) are the slave
     REMOTES = {}
 try:
-    from botconf import MASTERS
+    from tnnt.botconf import MASTERS
 except:
     SLAVE = False #if we have no master we (definitely) are the master
     MASTERS = []
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
-try: from botconf import CONFIGJSON
+try: from tnnt.botconf import CONFIGJSON
 except: CONFIGJSON = "config.json" # assume current directory
 
 # slurp the whole shebang into a big-arse dict.
@@ -90,7 +88,7 @@ config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
 # set TWIT to false to prevent tweeting
 TWIT = True
 try:
-    from botconf import TWITAUTH
+    from tnnt.botconf import TWITAUTH
 except:
     TWIT = False
 try:
@@ -132,7 +130,7 @@ gender = { "Mal": "Male",
          }
 
 # scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
-try: from botconf import SCOREBOARDJSON
+try: from tnnt.botconf import SCOREBOARDJSON
 except: SCOREBOARDJSON = "scoreboard.json" # assume current directory
 
 def fromtimestamp_int(s):
