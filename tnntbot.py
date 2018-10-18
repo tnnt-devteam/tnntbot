@@ -878,8 +878,8 @@ class DeathBotProtocol(irc.IRCClient):
 
     # !stats (or server generated hstats, etc)
     def getStats(self, master, sender, query, msgwords):
-        statPeriod = { "stats" : "day", "dstats": "day", "hstats": "hour", "fstats": "full" }
-        statType = { "stats" : "news", "cststs" : "news" } # so far today...
+        statPeriod = { "stats" : "day", "cstats" : "day", "dstats": "day", "hstats": "hour", "fstats": "full" }
+        statType = { "stats" : "news", "cstats" : "news" } # so far today...
         period = statPeriod[msgwords[0]]
         p = statType.get(msgwords[0],period)
         response = p + " " + json.dumps(self.stats[period])
