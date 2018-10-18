@@ -613,8 +613,8 @@ class DeathBotProtocol(irc.IRCClient):
                 # Expand the Rog->Rogue, Fem->Female, etc
                 #maxStat2["name"] = dict(role.items() + race.items() + gender.items() + align.items()).get(maxStat2["name"],maxStat2["name"])
                 # convert number to % of total games
-                maxStat2["number"] *= 100
-                maxStat2["number"] /= stats["games"]
+                maxStat2["number"] = int(round(maxStat2["number"] * 100 / stats["games"]))
+                
                 statmsg += "{number}%{name}, ".format(**maxStat2)
         if p != "full":
             statmsg += "{days}d {hours}h {minutes}m {prep}".format(**cd)
