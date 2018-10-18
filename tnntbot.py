@@ -79,26 +79,32 @@ except:
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
-try: from tnnt.botconf import CONFIGJSON
-except: CONFIGJSON = "config.json" # assume current directory
+TWIT = False
+if not SLAVE:
+    try: from tnnt.botconf import CONFIGJSON
+    except: CONFIGJSON = "config.json" # assume current directory
 
-# slurp the whole shebang into a big-arse dict.
-# need to parse out the comments. Thses must start with '# ' or '#-'
-# because my regexp is dumb
-config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
+    # slurp the whole shebang into a big-arse dict.
+    # need to parse out the comments. Thses must start with '# ' or '#-'
+    # because my regexp is dumb
+    config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
 
-# twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
-# pip install twitter
-# set TWIT to false to prevent tweeting
-TWIT = True
-try:
-    from tnnt.botconf import TWITAUTH
-except:
-    TWIT = False
-try:
-    from twitter import Twitter, OAuth
-except:
-    TWIT = False
+    # scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
+    try: from tnnt.botconf import SCOREBOARDJSON
+    except: SCOREBOARDJSON = "scoreboard.json" # assume current directory
+
+    # twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
+    # pip install twitter
+    # set TWIT to false to prevent tweeting
+    TWIT = True
+    try:
+        from tnnt.botconf import TWITAUTH
+    except:
+        TWIT = False
+    try:
+        from twitter import Twitter, OAuth
+    except:
+        TWIT = False
 
 # some lookup tables for formatting messages
 # these are not yet in conig.json
@@ -132,10 +138,6 @@ align = { "Cha": "Chaotic",
 gender = { "Mal": "Male",
            "Fem": "Female"
          }
-
-# scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
-try: from tnnt.botconf import SCOREBOARDJSON
-except: SCOREBOARDJSON = "scoreboard.json" # assume current directory
 
 def fromtimestamp_int(s):
     return datetime.fromtimestamp(int(s))
@@ -711,6 +713,7 @@ class DeathBotProtocol(irc.IRCClient):
         return self.listStuff(alist)
         
     def checkScoreboard(self):
+        if SLAVE: return
         # this chokes down the whole json file output by the scoreboard system,
         # Makes some comparisons,
         # and reports anything interesting that has changed.
