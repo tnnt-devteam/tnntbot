@@ -56,5 +56,5 @@ TEST = True
 
 # tournament and scoreboard related stuff:
 YEAR = 2018
-CONFIGJSON = BOTDIR + "config.json" # specify full path here
-SCOREBOARDJSON = BOTDIR + "scoreboard.json" # specify full path here
+CONFIGJSON = BOTDIR + "/config.json" # specify full path here
+SCOREBOARDJSON = BOTDIR + "/scoreboard.json" # specify full path here
