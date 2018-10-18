@@ -1,15 +1,12 @@
-# beholder
-IRC Announce Bot for hardfought.org, based on http://ascension.run/deathbot.py
-run with twistd, as follows:
- twistd -y beholder.py
-Some enhancements to the original deathbot code include:
- - delimiter-agnostic xlogfile parsing (because some newer variants have moved
-   from the traditional ':' delimiter to a <tab> character.
- - Dumplog url announcements for ascended games.
- - Various commands (inspired by #nethack's Rodney), as follows:
-    !time - report local time of the server.
-    !ping - determine if the bot is alive
-    !lastgame [variant] [player] - report dumplog url of most recent game.
-    !lastasc [variant] [player] - as above, but ascended games only.
-    !tell <nick> <message> - repeat <message> next time <nick> is active.
-    !beer, !goat - undocumented :P
+# tnntbot
+IRC/Twitter Announce Bot for TNNT hosted on hardfought.org, based on hardfought's main irc bot "Beholder", with some functions pulled from the "NotTheOracle" bot we used for the 2017 /dev/null/tribute tournament https://github.com/NHTangles/NotTheOracle
+Can run distributed master/slave network to report and aggregate stats from multiple servers (run an instance on each server and configure as described below)
+Edit botconf.py with local settings (see comments in botconf.py.example)
+Run with twistd, as follows:
+ twistd -y tnntbot.py
+
+Commands:
+!ping
+!time (gives remaining time to start/end of tournament)
+!stats (basic stats of games played in the current day)
+!tell (leave a message for another irc user)
