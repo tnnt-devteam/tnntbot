@@ -1,33 +1,32 @@
-# Instance-specific config for "Beholder" bot.
+# Instance-specific config for TNNT bot.
 #
 
-# server tag - mandatory for all instances
-SERVERTAG = "hdf-us"
+# server tag - mandatory for all servers
+SERVERTAG = "hdf-test"
 # connection
 HOST, PORT = "chat.us.freenode.net", 6697
 
 # Nick, channel, etc
-CHANNEL = "#hardfought" #channel is ignored on slave bots.
-NICK = "Beholder"
-USERNAME = "Beholder"
-REALNAME = "Beholder"
-# working directory (some files will be created here)
-BOTDIR = "/opt/beholder"
+#CHANNELS = ["#tnnt"] # ignored on slave bots.
+CHANNELS = ["#bottest"] # ignored on slave bots.
+NICK = "TnntBot_ChangeMe"
+USERNAME = "tnntbot"
+REALNAME = "TNNT Reporting bot (" + SERVERTAG + ")"
+# working directory (need write permission - some files will be created here)
+BOTDIR = "/opt/tnntbot"
 # file containing the nickserv password for NICK
 PWFILE = BOTDIR + "/pw"
 
 # file/web paths for dumplogs and ttyrecs.
 # subfolders are still hardcoded in the main bot.
 # trailing slash is required!
-FILEROOT="/opt/nethack/hardfought.org/"
-WEBROOT="https://www.hardfought.org/"
+FILEROOT="/opt/nethack/chroot/"
+WEBROOT="https://FIXME/"
 # directory to place channel logs.
-LOGROOT="/var/www/hardfought.org/irclog/"
-# Name of bot to forward "pinobot"-style queries
-PINOBOT = "Pinoclone"
+# comment out for no logging
+LOGROOT="/var/www/FIXME/tnnt/irclog/"
 # Name of bot in our channel that bridges discord network
 DCBRIDGE = "rld"
-
 
 # people allowed to do certain admin things.
 # This is not terribly secure, as it does not verify the nick is authenticated. 
@@ -38,7 +37,17 @@ ADMIN = ["K2", "Tangles"]
 # and the name of the "slave" bot that looks after each server.
 #            alias: (fqdn-of-server, remote-bot, path-to-local-copy-of-xlogfiles)
 # only define one of REMOTES or MASTERS
-REMOTES = { "hdf-eu": ("eu.hardfought.org", "beholder-eu", "/var/www/xlogs-eu")}
+REMOTES = { "hdf-eu": ("eu.hardfought.org", "tnnt-eu", "/var/www/xlogs-eu"),
+            "hdf-au": ("au.hardfought.org", "tnnt-au", "/var/www/xlogs-au")}
 # If we're a remote "slave" bot, MASTERS defines who we announce to, and who we take
 # queries from for !whereis, etc.
-#MASTERS = ["Beholder"]
+#MASTERS = ["TnntBot_ChangeMe"]
+
+#OPTIONAL TEST flag.  Ignores dump URL file path check
+# and possiblty does other things from time to time 
+TEST = True
+
+# tournament and scoreboard related stuff:
+YEAR = 2018
+CONFIGJSON = BOTDIR + "config.json" # specify full path here
+SCOREBOARDJSON = BOTDIR + "scoreboard.json" # specify full path here
