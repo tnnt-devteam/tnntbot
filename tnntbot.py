@@ -307,8 +307,9 @@ class DeathBotProtocol(irc.IRCClient):
     def signedOn(self):
         self.factory.resetDelay()
         self.startHeartbeat()
-        for c in CHANNELS:
-            self.join(c)
+        if not SLAVE: 
+            for c in CHANNELS:
+                self.join(c)
         random.seed()
 
         self.logs = {}
