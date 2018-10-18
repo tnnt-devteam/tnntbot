@@ -4,3 +4,5 @@
 *.pyc
 botconf.py
 pw
+*.json
+*.swp
