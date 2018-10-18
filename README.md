@@ -6,7 +6,11 @@ Run with twistd, as follows:
  twistd -y tnntbot.py
 
 Commands:
+
 !ping
+
 !time (gives remaining time to start/end of tournament)
+
 !stats (basic stats of games played in the current day)
+
 !tell (leave a message for another irc user)
