@@ -199,8 +199,9 @@ class DeathBotProtocol(irc.IRCClient):
        try:
            gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
            twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
-       except:
+       except Exception as e:
            print "Failed to auth to twitter"
+           print e
            TWIT = False
 
 
@@ -466,8 +467,9 @@ class DeathBotProtocol(irc.IRCClient):
             try:
                 if TEST: message = "[TEST] " + message
                 self.twit.statuses.update(status=message)
-            except:
+            except Exception as e:
                 print "Bad tweet: " + message
+                print e
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason

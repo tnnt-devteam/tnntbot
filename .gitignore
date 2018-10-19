@@ -6,3 +6,4 @@ botconf.py
 pw
 *.json
 *.swp
+.twitter_oauth
