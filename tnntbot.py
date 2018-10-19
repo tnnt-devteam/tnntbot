@@ -247,7 +247,7 @@ class DeathBotProtocol(irc.IRCClient):
                      "died"    : "\x1D\x0304D\x03\x0F",
                      "quit"    : "\x1D\x0308Q\x03\x0F",
                      "ascended": "\x1D\x0309A\x03\x0F",
-                     "escaped ": "\x1D\x0310E\x03\x0F"}
+                     "escaped" : "\x1D\x0310E\x03\x0F"}
 
     # put the displaystring for a thing in square brackets
     def displaytag(self, thing):
