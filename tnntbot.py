@@ -462,7 +462,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def tweet(self, message):
         if TWIT:
-            message = stripText(message)
+            message = self.stripText(message)
             try:
                 if TEST: message = "[TEST] " + message
                 self.twit.statuses.update(status=message)
