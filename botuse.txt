@@ -7,7 +7,7 @@ Additionally, it responds to the following commands:
 
 Utility commands:
 !ping                  - check if bot is alive.
-!time                  - Display current time on server
+!time                  - Display current time on server, and time remaning in or until tournamnent.
 !tell <nick> <message> - Forward a message when the recipient becomes active.
 
 Game server commands:
@@ -15,36 +15,7 @@ Game server commands:
 !lastasc  [variant] [player] - dumplog for last ascended game.
 !asc      [variant] [player] - ascension stats.
 !streak   [variant] [player] - ascension streak stats.
-!setmintc [turncount]        - prevent bot from reporting your deaths below
-                               specified turncount. Cleared by not specifying
-                               a turncount.
 !whereis <player>            - Give info about a player's current game.
-                               (only in some variants)
+!who / !players              - list players playing.
 
-Random Number Generator (RNG) commands:
-![m]d<n>        - Roll m dice (default 1) of n sides. eg: !2d6, or !d20
-!role [variant] - Suggest a role for specified variant, or a variant and role
-!race [variant] - As above, for race
-!variant        - Suggest a variant.
-!rng elf orc gnome
-                - Pick random word from list
-!rng do dishes | play NetHack | write bot instructions
-                - Pick random phrase from | separated list.
-!rng m-n        - pick random number between m and n
-!rng            - Provide information on nethack RNG workings.
-
-Other:
-!tea,!coffee,etc [rcpt] - Prepare a special unique beverage for you, or rcpt.
-!beer                   - Similar to above.
-!goat [recipient]       - Send in the goat.
-!pom                    - display ccurrent phase of moon
-
-Aliases:
-Where commands take the name of a variant, the following aliases are accepted:
-    nh: nh343 nethack 343
-    nd: nhdev nh361 361dev 361 dev
-    gh: grunt grunthack
-    un: unnethack unh
-    fh: fiqhack 
-    4k: nhfourk nhf fourk
 

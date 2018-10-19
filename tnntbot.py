@@ -200,11 +200,12 @@ class DeathBotProtocol(irc.IRCClient):
            gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
            twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
        except:
+           print "Failed to auth to twitter"
            TWIT = False
 
 
-    sourceURL = "https://github.com/NHTangles/beholder (tnnt branch)"
-    versionName = "beholder.py (tnnt)"
+    sourceURL = "https://github.com/tnnt-devteam/tnntbot"
+    versionName = "tnntbot.py"
     versionNum = "0.1"
 
     dump_url_prefix = WEBROOT + "userdata/{name[0]}/{name}/tnnt"
@@ -239,14 +240,14 @@ class DeathBotProtocol(irc.IRCClient):
     scoreboard = {}
 
     # for displaying variants and server tags in colour
-    displaystring = {"hdf-us" : "\x1D\x0304US\x03\x0F",
-                     "hdf-au" : "\x1D\x0303AU\x03\x0F",
-                     "hdf-eu" : "\x1D\x0312EU\x03\x0F",
+    displaystring = {"hdf-us"  : "\x1D\x0304US\x03\x0F",
+                     "hdf-au"  : "\x1D\x0303AU\x03\x0F",
+                     "hdf-eu"  : "\x1D\x0312EU\x03\x0F",
                      "hdf-test": "\x1D\x0308TS\x03\x0F",
-                     "died"   : "\x1D\x0304D\x03\x0F",
-                     "quit"   : "\x1D\x0308Q\x03\x0F",
+                     "died"    : "\x1D\x0304D\x03\x0F",
+                     "quit"    : "\x1D\x0308Q\x03\x0F",
                      "ascended": "\x1D\x0309A\x03\x0F",
-                     "escaped": "\x1D\x0310E\x03\x0F"}
+                     "escaped ": "\x1D\x0310E\x03\x0F"}
 
     # put the displaystring for a thing in square brackets
     def displaytag(self, thing):
@@ -367,7 +368,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.plr_tc = shelve.open(BOTDIR + "/plrtc.db", writeback=True)
 
         # Commands must be lowercase here.
-        self.commands = {"ping"     : self.doPing,
+        self.commands = {"ping"     : self.doPing, 
                          "time"     : self.doTime,
                          "tell"     : self.takeMessage,
                          "source"   : self.doSource,
@@ -773,7 +774,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.respond(replyto, sender, self.helpURL )
 
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are !help !ping !time !tell !source !lastgame !lastasc !asc !streak !rcedit !scores !sb !whereis !players !who !commands")
+        self.respond(replyto, sender, "available commands are !help !ping !time !tell !source !lastgame !lastasc !asc !streak !rcedit !scores !sb !whereis !players !who !commands" )
 
     def takeMessage(self, sender, replyto, msgwords):
         rcpt = msgwords[1].split(":")[0] # remove any trailing colon - could check for other things here.
