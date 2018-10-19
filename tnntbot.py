@@ -60,8 +60,6 @@ try: from tnnt.botconf import DCBRIDGE
 except: DCBRIDGE = None
 try: from tnnt.botconf import TEST
 except: TEST = False
-try: from tnnt.botconf import TWITAUTH
-except: TWIT = False
 try:
     from tnnt.botconf import REMOTES
 except:
@@ -100,10 +98,12 @@ if not SLAVE:
     try:
         from tnnt.botconf import TWITAUTH
     except:
+        print "no TWITAUTH - twitter disabled"
         TWIT = False
     try:
         from twitter import Twitter, OAuth
     except:
+        print "Unable to import from twitter module"
         TWIT = False
 
 # some lookup tables for formatting messages
