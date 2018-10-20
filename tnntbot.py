@@ -1146,7 +1146,7 @@ class DeathBotProtocol(irc.IRCClient):
             return
         if dest not in CHANNELS and sender in self.slaves: # game announcement from slave
             spam = False
-            if msgwords[0] == "SPAM":
+            if msgwords[0] == "SPAM:":
                 msgwords = msgwords[1:]
                 spam = True
             self.announce(" ".join(msgwords), spam)
