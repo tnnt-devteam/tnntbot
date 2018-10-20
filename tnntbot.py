@@ -209,8 +209,8 @@ class DeathBotProtocol(irc.IRCClient):
     versionName = "tnntbot.py"
     versionNum = "0.1"
 
-    dump_url_prefix = WEBROOT + "userdata/{name[0]}/{name}/tnnt"
-    dump_file_prefix = FILEROOT + "dgldir/userdata/{name[0]}/{name}/tnnt"
+    dump_url_prefix = WEBROOT + "userdata/{name[0]}/{name}/"
+    dump_file_prefix = FILEROOT + "dgldir/userdata/{name[0]}/{name}/"
 
     # tnnt runs on UTC
     os.environ["TZ"] = ":UTC"
