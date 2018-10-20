@@ -573,13 +573,13 @@ class DeathBotProtocol(irc.IRCClient):
         # formatting awkwardness
         # do turns and points, or time.
         stat1lst = [ "{turns} turns, {points} points. ",
-                      "{d}d {h}h {m}m {s}s gametime. "
+                      "{d}d {h:02d}:{m:02d} gametime. "
                    ]
         stat2str = { "align"  : "alignment" } # use get() to leave unchanged if not here
-        periodStr = { "hour" : "HOURLY STATS AT %F %H:00 %Z: ",
-                      "day"  : "DAILY STATS AT %F %H:00 %Z: ",
-                      "news" : "CURRENT DAY AS AT %F %H:%M %Z: ",
-                      "full" : "FINAL TOURNAMENT STATISTICS: "
+        periodStr = { "hour" : "\x02Hourly Stats\x0f at %F %H:00 %Z: ",
+                      "day"  : "\x02DAILY STATS\x0f AT %F %H:00 %Z: ",
+                      "news" : "\x02Current Day\x0f as at %F %H:%M %Z: ",
+                      "full" : "\x02FINAL TOURNAMENT STATISTICS:\x0f "
                     }
         # hourly, we report one of role/race/etc. Daily, and for news, we report them all
         if p == "hour":
@@ -619,9 +619,9 @@ class DeathBotProtocol(irc.IRCClient):
                 # convert number to % of total games
                 maxStat2["number"] = int(round(maxStat2["number"] * 100 / stats["games"]))
                 
-                statmsg += "{number}%{name}, ".format(**maxStat2)
+                statmsg += "({number}%{name}), ".format(**maxStat2)
         if p != "full":
-            statmsg += "{days}d {hours}h {minutes}m {prep}".format(**cd)
+            statmsg += "{days}d {hours:02d}:{minutes:02d} {prep}".format(**cd)
             for c in chanlist:
                 self.msgLog(c, statmsg)
         else:
