@@ -585,7 +585,7 @@ class DeathBotProtocol(irc.IRCClient):
                     }
         # hourly, we report one of role/race/etc. Daily, and for news, we report them all
         if p == "hour":
-            if stats["games"] < 10: return
+            if stats["games"] - stats["scum"] < 10: return
             stat1lst = [random.choice(stat1lst)]
             # weighted. role is more interesting than gender
             stat2lst = [random.choice(["role"] * 5 + ["race"] * 3 + ["align"] * 2 + ["gender"])]
@@ -618,8 +618,8 @@ class DeathBotProtocol(irc.IRCClient):
                 maxStat2 = dict(zip(["name","number"],max(stats[stat2].iteritems(), key=lambda x:x[1])))
                 # Expand the Rog->Rogue, Fem->Female, etc
                 #maxStat2["name"] = dict(role.items() + race.items() + gender.items() + align.items()).get(maxStat2["name"],maxStat2["name"])
-                # convert number to % of total games
-                maxStat2["number"] = int(round(maxStat2["number"] * 100 / stats["games"]))
+                # convert number to % of total (non-scum) games
+                maxStat2["number"] = int(round(maxStat2["number"] * 100 / (stats["games"] - stats["scum"])))
                 
                 statmsg += "({number}%{name}), ".format(**maxStat2)
         if p != "full":
@@ -1224,11 +1224,13 @@ class DeathBotProtocol(irc.IRCClient):
         for period in ["hour","day","full"]:
             if period == "full" or et[period] == nt[period]:
                 self.stats[period]["games"] += 1
-                if scumbag: self.stats[period]["scum"] += 1
+                if scumbag:
+                    self.stats[period]["scum"] += 1
+                else: # only count non-scums in rrga stats
+                    for rrga in ["role","race","gender","align"]:
+                        self.stats[period][rrga][game[rrga]] = self.stats[period][rrga].get(game[rrga],0) + 1
                 for tp in ["turns","points","realtime"]:
                     self.stats[period][tp] += int(game[tp])
-                for rrga in ["role","race","gender","align"]:
-                    self.stats[period][rrga][game[rrga]] = self.stats[period][rrga].get(game[rrga],0) + 1
                 if game["death"] == "ascended":
                     self.stats[period]["ascend"] += 1
 
