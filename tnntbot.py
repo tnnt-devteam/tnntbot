@@ -315,10 +315,12 @@ class DeathBotProtocol(irc.IRCClient):
         random.seed()
 
         self.logs = {}
+        # boolean for whether announcements from the log are 'spam', after dumpfmt
+        # true for livelogs, false for xlogfiles
         for xlogfile, (variant, delim, dumpfmt) in self.xlogfiles.iteritems():
-            self.logs[xlogfile] = (self.xlogfileReport, variant, delim, dumpfmt)
+            self.logs[xlogfile] = (self.xlogfileReport, variant, delim, dumpfmt, False)
         for livelog, (variant, delim) in self.livelogs.iteritems():
-            self.logs[livelog] = (self.livelogReport, variant, delim, "")
+            self.logs[livelog] = (self.livelogReport, variant, delim, "", True)
 
         self.logs_seek = {}
         self.looping_calls = {}
@@ -1143,7 +1145,11 @@ class DeathBotProtocol(irc.IRCClient):
             self.commands[msgwords[0].lower()](sender, replyto, msgwords)
             return
         if dest not in CHANNELS and sender in self.slaves: # game announcement from slave
-            self.announce(" ".join(msgwords))
+            spam = False
+            if msgwords[0] == "SPAM":
+                msgwords = msgwords[1:]
+                spam = True
+            self.announce(" ".join(msgwords), spam)
 
     #other events for logging
     def action(self, doer, dest, message):
@@ -1350,13 +1356,16 @@ class DeathBotProtocol(irc.IRCClient):
                 delim = self.logs[filepath][2]
                 game = parse_xlogfile_line(line, delim)
                 game["dumpfmt"] = self.logs[filepath][3]
+                spam = self.logs[filepath][4]
                 for line in self.logs[filepath][0](game):
                     line = self.displaytag(SERVERTAG) + " " + line
                     if SLAVE:
+                        if spam:
+                            line = "SPAM: " + line
                         for master in MASTERS:
                             self.msg(master, line)
                     else:
-                        self.announce(line)
+                        self.announce(line,spam)
 
             self.logs_seek[filepath] = handle.tell()
 
