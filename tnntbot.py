@@ -729,7 +729,8 @@ class DeathBotProtocol(irc.IRCClient):
         if not prevScoreboard: return
         for player in self.scoreboard["players"]["all"]:
             currTrophies = self.scoreboard["players"]["all"][player].get("trophies",[])
-            prevTrophies = prevScoreboard["players"]["all"][player].get("trophies",[])
+            try: prevTrophies = prevScoreboard["players"]["all"][player].get("trophies",[])
+            except: prevTrophies = [] # Player won't be in prev, if it's their 1st game
             newTrophies = []
             for t in currTrophies:
                 if t not in prevTrophies:
@@ -738,7 +739,8 @@ class DeathBotProtocol(irc.IRCClient):
                 self.announce(self.scoreboard["players"]["all"][player]["name"]
                               + " now has " + self.listTrophies(newTrophies) + "!")
             currAch = self.scoreboard["players"]["all"][player].get("achievements",[])
-            prevAch = prevScoreboard["players"]["all"][player].get("achievements",[])
+            try: prevAch = prevScoreboard["players"]["all"][player].get("achievements",[])
+            except: prevAch = []
             newAch = []
             for a in currAch:
                 if a not in prevAch:
