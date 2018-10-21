@@ -751,7 +751,7 @@ class DeathBotProtocol(irc.IRCClient):
                 if a not in prevAch:
                     newAch += [a]
             if newAch:
-                self.announce(self.displaytag("achievement") + " "
+                self.announce(self.displaytag("achieve") + " "
                               + str(self.scoreboard["players"]["all"][player]["name"])
                               + " just earned " + self.listAchievements(newAch, 4) + ".", True)
 
