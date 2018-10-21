@@ -580,7 +580,7 @@ class DeathBotProtocol(irc.IRCClient):
         stat2str = { "align"  : "alignment" } # use get() to leave unchanged if not here
         periodStr = { "hour" : "\x02Hourly Stats\x0f at %F %H:00 %Z: ",
                       "day"  : "\x02DAILY STATS\x0f AT %F %H:00 %Z: ",
-                      "news" : "\x02Current Day\x0f as at %F %H:%M %Z: ",
+                      "news" : "\x02Current Day\x0f as of %F %H:%M %Z: ",
                       "full" : "\x02FINAL TOURNAMENT STATISTICS:\x0f "
                     }
         # hourly, we report one of role/race/etc. Daily, and for news, we report them all
