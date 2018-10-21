@@ -245,10 +245,12 @@ class DeathBotProtocol(irc.IRCClient):
                      "hdf-au"  : "\x1D\x0303AU\x03\x0F",
                      "hdf-eu"  : "\x1D\x0312EU\x03\x0F",
                      "hdf-test": "\x1D\x0308TS\x03\x0F",
-                     "died"    : "\x1D\x0304D\x03\x0F",
-                     "quit"    : "\x1D\x0308Q\x03\x0F",
-                     "ascended": "\x1D\x0309A\x03\x0F",
-                     "escaped" : "\x1D\x0310E\x03\x0F"}
+                     "trophy"  : "\x1D\x0313Tr\x03\x0F",
+                     "achieve" : "\x1D\x0305Ac\x03\x0F",
+                     "died"    : "\x02\x1D\x0304D\x03\x0F",
+                     "quit"    : "\x02\x1D\x0308Q\x03\x0F",
+                     "ascended": "\x02\x1D\x0309A\x03\x0F",
+                     "escaped" : "\x02\x1D\x0310E\x03\x0F"}
 
     # put the displaystring for a thing in square brackets
     def displaytag(self, thing):
@@ -709,7 +711,7 @@ class DeathBotProtocol(irc.IRCClient):
     def listTrophies(self,trophies):
         tlist = []
         for t in trophies:
-            tlist += [config["trophies"][t]["title"]]
+            tlist += [config["trophies"][str(t)]["title"]]
         return self.listStuff(tlist)
 
     def listAchievements(self, achievements, maxCount):
@@ -736,9 +738,10 @@ class DeathBotProtocol(irc.IRCClient):
             newTrophies = []
             for t in currTrophies:
                 if t not in prevTrophies:
-                    newTrophies += [t]
+                    newTrophies += [t["trophy"]]
             if newTrophies:
-                self.announce(self.scoreboard["players"]["all"][player]["name"]
+                self.announce(self.displaytag("trophy") + " "
+                              + str(self.scoreboard["players"]["all"][player]["name"])
                               + " now has " + self.listTrophies(newTrophies) + "!")
             currAch = self.scoreboard["players"]["all"][player].get("achievements",[])
             try: prevAch = prevScoreboard["players"]["all"][player].get("achievements",[])
@@ -748,7 +751,8 @@ class DeathBotProtocol(irc.IRCClient):
                 if a not in prevAch:
                     newAch += [a]
             if newAch:
-                self.announce(str(self.scoreboard["players"]["all"][player]["name"])
+                self.announce(self.displaytag("achievement") + " "
+                              + str(self.scoreboard["players"]["all"][player]["name"])
                               + " just earned " + self.listAchievements(newAch, 4) + ".", True)
 
     # implement commands here
