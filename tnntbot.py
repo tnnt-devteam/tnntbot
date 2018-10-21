@@ -384,6 +384,8 @@ class DeathBotProtocol(irc.IRCClient):
                          "rcedit"   : self.doRCedit,
                          "commands" : self.doCommands,
                          "help"     : self.doHelp,
+                         "score"    : self.doScore,
+                         "clanscore": self.doClanScore,
                          "players"  : self.multiServerCmd,
                          "who"      : self.multiServerCmd,
                          "asc"      : self.multiServerCmd,
@@ -783,7 +785,32 @@ class DeathBotProtocol(irc.IRCClient):
 
     def doHelp(self, sender, replyto, msgwords):
         self.respond(replyto, sender, self.helpURL )
+    
+    def doScore(self, sender, replyto, msgwords):
+        if len(msgwords) > 2:
+            self.respond(replyto, sender, "!" + msgwords[0]
+                         + " - get tournament score and ranking of yourself or another player")
+            return
+        if len(msgwords) == 2:
+            PLR = msgwords[1]
+        else:
+            PLR = sender
+        plr = PLR.lower()
+        # case insensitive search
+        player = None
+        for p in self.scoreboard["players"]["all"].keys():
+            if plr == p.lower():
+                player = p
+                break
+        if not player:
+            self.respond(replyto, sender, "Can't find player {0} on the scoreboard.".format(PLR))
+            return
+        score = int(self.scoreboard["players"]["all"][player]["score"])
+        rank = int(self.scoreboard["players"]["all"][player]["rank"])
+        self.respond(replyto, sender, str(player) + " - Score: {0} - Rank: {1}".format(score, rank))
 
+    def doClanScore(self, sender, replyto, msgwords):
+        self.respond(replyto, sender, "Coming soon")
     def doCommands(self, sender, replyto, msgwords):
         self.respond(replyto, sender, "available commands are !help !ping !time !tell !source !lastgame !lastasc !asc !streak !rcedit !scores !sb !whereis !players !who !commands" )
 
