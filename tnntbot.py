@@ -769,7 +769,7 @@ class DeathBotProtocol(irc.IRCClient):
         verbs = { "start" : "begins",
                   "end" : "closes"
                 }
-        timeMsg += YEAR + " Tournament " + verbs[timeLeft["event"]] + " in '{days}d {hours:0>2}:{minutes:0>2}:{seconds:0>2}'".format(**timeLeft)
+        timeMsg += YEAR + " Tournament " + verbs[timeLeft["event"]] + " in {days}d {hours:0>2}:{minutes:0>2}:{seconds:0>2}".format(**timeLeft)
         self.respond(replyto, sender, timeMsg)
 
     def doSource(self, sender, replyto, msgwords):
