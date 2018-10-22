@@ -855,7 +855,7 @@ class DeathBotProtocol(irc.IRCClient):
             if not tryClan:
                 self.respond(replyto, sender, "Could not get clan membership for " + sender + ".")
                 return
-            if tryClan in self.clanTag:
+            if tryClan.lower() in self.clanTag:
                 clan = self.scoreboard["clans"]["all"][self.clanTag[tryClan]["n"]]
                 name, score, rank = [clan[x] for x in ["name","score","rank"]]
             else:
