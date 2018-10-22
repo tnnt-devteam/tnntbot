@@ -106,6 +106,8 @@ if not SLAVE:
         print "Unable to import from twitter module"
         TWIT = False
 
+CLANTAGJSON = BOTDIR + "/clantag.json"
+
 # some lookup tables for formatting messages
 # these are not yet in conig.json
 role = { "Arc": "Archeologist",
@@ -239,6 +241,10 @@ class DeathBotProtocol(irc.IRCClient):
     xlogfiles = {filepath.FilePath(FILEROOT+"tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.txt")}
     livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
     scoreboard = {}
+    try:
+        clanTag = json.load(open(CLANTAGJSON))
+    except:
+        clanTag = {}
 
     # for displaying variants and server tags in colour
     displaystring = {"hdf-us"  : "\x1D\x0304US\x03\x0F",
@@ -386,6 +392,7 @@ class DeathBotProtocol(irc.IRCClient):
                          "help"     : self.doHelp,
                          "score"    : self.doScore,
                          "clanscore": self.doClanScore,
+                         "clantag"  : self.doClanTag,
                          "players"  : self.multiServerCmd,
                          "who"      : self.multiServerCmd,
                          "asc"      : self.multiServerCmd,
@@ -792,7 +799,8 @@ class DeathBotProtocol(irc.IRCClient):
                          + " - get tournament score and ranking of yourself or another player")
             return
         if len(msgwords) == 2:
-            PLR = msgwords[1]
+            # accommodate the '\' clan tags that players add in irc.
+            PLR = msgwords[1].split("\\")[0]
         else:
             PLR = sender
         plr = PLR.lower()
@@ -809,10 +817,58 @@ class DeathBotProtocol(irc.IRCClient):
         rank = int(self.scoreboard["players"]["all"][player]["rank"])
         self.respond(replyto, sender, str(player) + " - Score: {0} - Rank: {1}".format(score, rank))
 
+    def doClanTag(self, sender, replyto, msgwords):
+        # msgwords[1] is the desired tag, msgwords[the rest] is the clan name as it appears in the scoreboard
+        # case is ignored for searching, but correct case is stored in the table for faster lookup later.
+        if len(msgwords) < 3:
+            self.respond(replyto, sender, "!" + msgwords[0] + " <tag> <clan name> - assigns a shorthand tag to a clan for use with !clanscore")
+            return
+        if msgwords[1].lower() in [clan["name"].lower() for clan in self.scoreboard["clans"]["all"]]:
+            self.respond(replyto, sender, msgwords[1] + " is already the name of a clan.") # people will be smartarses
+            return
+        for clan in self.scoreboard["clans"]["all"]:
+            if clan["name"].lower() == " ".join(msgwords[2:]).lower():
+                self.clanTag[msgwords[1].lower()] = {"n": int(clan["n"]), "name": str(clan["name"])}
+                self.respond(replyto, sender, "Clan Tag {0} assigned to {1}".format(msgwords[1],str(clan["name"])))
+                with open(CLANTAGJSON, 'w') as f:
+                    json.dump(self.clanTag, f)
+                return
+        self.respond(replyto, sender, "Can't find a clan named {0} on the scoreboard".format(" ".join(msgwords[2:])))
+
     def doClanScore(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "Coming soon")
+        tryClan, name, score, rank = '', '', 0, 0
+        # the hard part is working out what clan we need to look up
+        if len(msgwords) > 1:
+            tryClan = " ".join(msgwords[1:])
+        else:
+            splitNick = sender.split("\\")
+            if len(splitNick) > 1:
+                tryClan = splitNick[1]
+            else:
+                # look up clan of player(sender)
+                for clan in self.scoreboard["clans"]["all"]:
+                    # fugly case-insensitive search
+                    if sender.lower() in " ".join(clan["players"]).lower().split(" "):
+                        name, score, rank = [clan[x] for x in ["name","score","rank"]]
+                        break
+        if not name:
+            if not tryClan:
+                self.respond(replyto, sender, "Could not get clan membership for " + sender + ".")
+                return
+            if tryClan in self.clanTag:
+                clan = self.scoreboard["clans"]["all"][self.clanTag[tryClan]["n"]]
+                name, score, rank = [clan[x] for x in ["name","score","rank"]]
+            else:
+                for clan in self.scoreboard["clans"]["all"]:
+                    if clan["name"].lower() == tryClan.lower():
+                        name, score, rank = [clan[x] for x in ["name","score","rank"]]
+        if name:
+            self.respond(replyto, sender, str(name) + " - Score: {0} - Rank: {1}".format(int(score),int(rank)))
+        else:
+            self.respond(replyto, sender, "Can't find clan {0}".format(tryClan))
+
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are !help !ping !time !tell !source !lastgame !lastasc !asc !streak !rcedit !scores !sb !whereis !players !who !commands" )
+        self.respond(replyto, sender, "available commands are !help !ping !time !tell !source !lastgame !lastasc !asc !streak !rcedit !scores !sb !score !clanscore !clantag !whereis !players !who !commands" )
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
