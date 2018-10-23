@@ -11,8 +11,14 @@ Commands:
 
 !ping
 
-!time (gives remaining time to start/end of tournament)
+!time - gives remaining time to start/end of tournament
 
-!stats (basic stats of games played in the current day)
+!stats - basic stats of games played in the current day
 
-!tell (leave a message for another irc user)
+!tell - leave a message for another irc user
+
+!score - report your (or another player's) current position on the scoreboard
+
+!clanscore - report your (or another) clan's position on the scoreboard
+
+!clantag - create easy-to-type nicknames for clans, to use with !clanscore
