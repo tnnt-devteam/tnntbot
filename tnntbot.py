@@ -746,7 +746,7 @@ class DeathBotProtocol(irc.IRCClient):
             except: prevTrophies = [] # Player won't be in prev, if it's their 1st game
             newTrophies = []
             for t in currTrophies:
-                if t not in prevTrophies:
+                if t not in prevTrophies and t["trophy"] != "noscum": # noscum trophy will be spammy
                     newTrophies += [t["trophy"]]
             if newTrophies:
                 self.announce(self.displaytag("trophy") + " "
