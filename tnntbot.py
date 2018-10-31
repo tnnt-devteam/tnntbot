@@ -740,6 +740,7 @@ class DeathBotProtocol(irc.IRCClient):
         if self.scoreboard: prevScoreboard = self.scoreboard
         self.scoreboard = json.load(open(SCOREBOARDJSON))
         if not prevScoreboard: return
+        if "all" not in self.scoreboard["players"]: return # scoreboard is empty at the start
         for player in self.scoreboard["players"]["all"]:
             currTrophies = self.scoreboard["players"]["all"][player].get("trophies",[])
             try: prevTrophies = prevScoreboard["players"]["all"][player].get("trophies",[])
