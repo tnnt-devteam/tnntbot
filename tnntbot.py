@@ -767,9 +767,14 @@ class DeathBotProtocol(irc.IRCClient):
                 if a not in prevAch:
                     newAch += [a]
             if newAch:
+                alist = self.listAchievements(newAch, 4)
+                if alist == "shafted":
+                    alist = " just got " + alist
+                else:
+                    alist = " just earned " + alist
                 self.announce(self.displaytag("achieve") + " "
                               + str(self.scoreboard["players"]["all"][player]["name"])
-                              + " just earned " + self.listAchievements(newAch, 4) + ".", True)
+                              + alist + ".", True)
 
     # implement commands here
     def doPing(self, sender, replyto, msgwords):
