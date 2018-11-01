@@ -738,7 +738,13 @@ class DeathBotProtocol(irc.IRCClient):
         # and reports anything interesting that has changed.
         prevScoreboard = {}
         if self.scoreboard: prevScoreboard = self.scoreboard
-        self.scoreboard = json.load(open(SCOREBOARDJSON))
+        try:
+            self.scoreboard = json.load(open(SCOREBOARDJSON))
+        except:
+            print "Failed to load scoreboard from " + SCOREBOARDJSON
+            self.scoreboard = prevScoreboard
+            return
+
         if not prevScoreboard: return
         if "all" not in self.scoreboard["players"]: return # scoreboard is empty at the start
         for player in self.scoreboard["players"]["all"]:
