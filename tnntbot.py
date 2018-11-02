@@ -253,6 +253,7 @@ class DeathBotProtocol(irc.IRCClient):
                      "hdf-test": "\x1D\x0308TS\x03\x0F",
                      "trophy"  : "\x1D\x0313Tr\x03\x0F",
                      "achieve" : "\x1D\x0305Ac\x03\x0F",
+                     "clan"    : "\x1D\x0312R\x03\x0F",
                      "died"    : "\x02\x1D\x0304D\x03\x0F",
                      "quit"    : "\x02\x1D\x0308Q\x03\x0F",
                      "ascended": "\x02\x1D\x0309A\x03\x0F",
@@ -478,7 +479,10 @@ class DeathBotProtocol(irc.IRCClient):
         if TWIT:
             message = self.stripText(message)
             try:
-                if TEST: message = "[TEST] " + message
+                if TEST:
+                     message = "[TEST] " + message
+                     print "Not tweeting in test mode: " + message
+                     return
                 self.twit.statuses.update(status=message)
             except Exception as e:
                 print "Bad tweet: " + message
@@ -730,7 +734,7 @@ class DeathBotProtocol(irc.IRCClient):
         for a in achievements:
             alist += [config["achievements"][str(a)]["title"]]
         return self.listStuff(alist)
-        
+
     def checkScoreboard(self):
         if SLAVE: return
         # this chokes down the whole json file output by the scoreboard system,
@@ -747,6 +751,10 @@ class DeathBotProtocol(irc.IRCClient):
 
         if not prevScoreboard: return
         if "all" not in self.scoreboard["players"]: return # scoreboard is empty at the start
+        prevGreatFoo = prevScoreboard["trophies"]["players"].get("greatfoo",{})
+        if not prevGreatFoo: prevGreatFoo = {} # empy values in json get set to None
+        greatFoo = self.scoreboard["trophies"]["players"].get("greatfoo", {})
+        if not greatFoo: greatFoo = {} # empy values in json get set to None
         for player in self.scoreboard["players"]["all"]:
             currTrophies = self.scoreboard["players"]["all"][player].get("trophies",[])
             try: prevTrophies = prevScoreboard["players"]["all"][player].get("trophies",[])
@@ -775,6 +783,29 @@ class DeathBotProtocol(irc.IRCClient):
                 self.announce(self.displaytag("achieve") + " "
                               + str(self.scoreboard["players"]["all"][player]["name"])
                               + alist + ".", True)
+            # report greatfoo awards by player even though they are not stored this way
+            newGF = []
+            for gf in greatFoo:
+                if player in greatFoo[gf]:
+                    if gf not in prevGreatFoo or player not in prevGreatFoo[gf]:
+                        newGF += [gf]
+            if newGF:
+                self.announce(self.displaytag("trophy") + " "
+                              + str(self.scoreboard["players"]["all"][player]["name"])
+                              + " is awarded the " + self.listTrophies(newGF) + "!")
+
+        # report clan ranking changes
+        # this assumes clan["n"] is the index to the clan list and it never changes
+        for clan in self.scoreboard["clans"]["all"]:
+            if len(prevScoreboard["clans"]["all"]) <= int(clan["n"]):
+                self.announce(self.displaytag("clan") + " New clan registered - "
+                              + str(clan["name"]) + "!")
+            elif prevScoreboard["clans"]["all"][int(clan["n"])]["rank"] > clan["rank"]:
+                self.announce(self.displaytag("clan") + " Clan "
+                              + str(clan["name"])
+                              + " moves to ranking position "
+                              + str(clan["rank"]) + "!")
+
 
     # implement commands here
     def doPing(self, sender, replyto, msgwords):
