@@ -800,7 +800,7 @@ class DeathBotProtocol(irc.IRCClient):
             if len(prevScoreboard["clans"]["all"]) <= int(clan["n"]):
                 self.announce(self.displaytag("clan") + " New clan registered - "
                               + str(clan["name"]) + "!")
-            elif prevScoreboard["clans"]["all"][int(clan["n"])]["rank"] > clan["rank"]:
+            elif prevScoreboard["clans"]["all"][int(clan["n"])].get("rank",0) > clan.get("rank",0):
                 self.announce(self.displaytag("clan") + " Clan "
                               + str(clan["name"])
                               + " moves to ranking position "
