@@ -1226,9 +1226,6 @@ class DeathBotProtocol(irc.IRCClient):
                 message = "> ".join(msgparts[1:]) # in case there's more "> " in the message
         else: #private msg
             replyto = sender
-        # Hello processing first.
-        if re.match(r'^(hello|hi|hey|salut|hallo|guten tag|shalom|ciao|hola|aloha|bonjour|hei|gday|konnichiwa|nuqneh)[!?. ]*$', message.lower()):
-            self.doHello(sender, replyto)
         # Message checks next.
         self.checkMessages(sender, dest)
         # ignore other channel noise unless !command
