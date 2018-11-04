@@ -776,7 +776,7 @@ class DeathBotProtocol(irc.IRCClient):
                     newAch += [a]
             if newAch:
                 alist = self.listAchievements(newAch, 4)
-                if alist == "shafted":
+                if alist == "Shafted":
                     alist = " just got " + alist
                 else:
                     alist = " just earned " + alist
