@@ -39,7 +39,7 @@ from twisted.internet import reactor, protocol, ssl, task
 from twisted.words.protocols import irc
 from twisted.python import filepath
 from twisted.application import internet, service
-from datetime import datetime, timedelta 
+from datetime import datetime, timedelta
 import time     # for !time
 import ast      # for conduct/achievement bitfields - not really used
 import os       # for check path exists (dumplogs), and chmod
@@ -324,7 +324,7 @@ class DeathBotProtocol(irc.IRCClient):
     def signedOn(self):
         self.factory.resetDelay()
         self.startHeartbeat()
-        if not SLAVE: 
+        if not SLAVE:
             for c in CHANNELS:
                 self.join(c)
         random.seed()
@@ -386,7 +386,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.plr_tc = shelve.open(BOTDIR + "/plrtc.db", writeback=True)
 
         # Commands must be lowercase here.
-        self.commands = {"ping"     : self.doPing, 
+        self.commands = {"ping"     : self.doPing,
                          "time"     : self.doTime,
                          "tell"     : self.takeMessage,
                          "source"   : self.doSource,
@@ -424,7 +424,7 @@ class DeathBotProtocol(irc.IRCClient):
                           "cstats"  : self.getStats, # cumulative day stats (6-hourly)
                           "dstats"  : self.getStats, # scheduled daily stats
                           "fstats"  : self.getStats} # scheduled final stats
-              
+
         # callbacks to run when all slaves have responded
         self.callBacks = {"players" : self.outPlayers,
                           "who"     : self.outPlayers,
@@ -641,7 +641,7 @@ class DeathBotProtocol(irc.IRCClient):
                 #maxStat2["name"] = dict(role.items() + race.items() + gender.items() + align.items()).get(maxStat2["name"],maxStat2["name"])
                 # convert number to % of total (non-scum) games
                 maxStat2["number"] = int(round(maxStat2["number"] * 100 / (stats["games"] - stats["scum"])))
-                
+
                 statmsg += "({number}%{name}), ".format(**maxStat2)
         if p != "full":
             statmsg += "{days}d {hours:02d}:{minutes:02d} {prep}".format(**cd)
@@ -828,7 +828,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def doHelp(self, sender, replyto, msgwords):
         self.respond(replyto, sender, self.helpURL )
-    
+
     def doScore(self, sender, replyto, msgwords):
         if len(msgwords) > 2:
             self.respond(replyto, sender, "!" + msgwords[0]
@@ -1011,7 +1011,7 @@ class DeathBotProtocol(irc.IRCClient):
             self.forwardQuery(sender, replyto, msgwords, self.callBacks.get(msgwords[0],None))
 
     def blowChunks(self, line, n):
-        # split line into a list of chunks of max n chars 
+        # split line into a list of chunks of max n chars
         # https://stackoverflow.com/questions/9475241/split-string-every-nth-character
         return [line[i:i+n] for i in range(0, len(line), n)]
 
@@ -1047,7 +1047,7 @@ class DeathBotProtocol(irc.IRCClient):
         replyto = None
         if statType == "news": replyto = q["replyto"]
         self.spamStats(statType, aggStats, replyto)
-    
+
     # !players - respond to forwarded query and actually pull the info
     def getPlayers(self, master, sender, query, msgwords):
         plrvar = ""
@@ -1158,7 +1158,7 @@ class DeathBotProtocol(irc.IRCClient):
         stats += "."
         self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG)
                          + " " + PLR
-                         + " has ascended " 
+                         + " has ascended "
                          + str(totasc) + " times in "
                          + str(self.allgames[plr])
                          + " games ({:0.2f}%):".format((100.0 * totasc)
@@ -1199,7 +1199,7 @@ class DeathBotProtocol(irc.IRCClient):
             reply += "No streaks for " + PLR + "."
             self.msg(master,reply)
             return
-        reply += self.displaytag(SERVERTAG) + " " + PLR 
+        reply += self.displaytag(SERVERTAG) + " " + PLR
         reply += " Max: " + str(llength) + " (" + self.streakDate(lstart) \
                           + " - " + self.streakDate(lend) + ")"
         if clength > 0:
@@ -1411,7 +1411,7 @@ class DeathBotProtocol(irc.IRCClient):
         if game["death"] in ("quit", "escaped", "ascended"):
             END = self.displaytag(game["death"])
         else: END = self.displaytag("died")
-        
+
         yield (END + ": {name} ({role}-{race}-{gender}-{align}), "
                    "{points} points, {turns} turns, {death}{ascsuff}").format(**game)
 
