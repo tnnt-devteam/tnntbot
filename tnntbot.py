@@ -237,6 +237,12 @@ class DeathBotProtocol(irc.IRCClient):
                 except:
                     chanLog[c] = None
                 if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
+        # round up of basic stats for milestone reporting.
+        summary = { "games" : 0,
+                    "asc"   : 0,
+                    "time"  : 0,
+                    "turns" : 0,
+                    "points": 0 }
 
     xlogfiles = {filepath.FilePath(FILEROOT+"tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.txt")}
     livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
@@ -752,9 +758,6 @@ class DeathBotProtocol(irc.IRCClient):
         if not prevScoreboard: return
         if "all" not in self.scoreboard["players"]: return # scoreboard is empty at the start
         prevGreatFoo = prevScoreboard["trophies"]["players"].get("greatfoo",{})
-        if not prevGreatFoo: prevGreatFoo = {} # empy values in json get set to None
-        greatFoo = self.scoreboard["trophies"]["players"].get("greatfoo", {})
-        if not greatFoo: greatFoo = {} # empy values in json get set to None
         for player in self.scoreboard["players"]["all"]:
             currTrophies = self.scoreboard["players"]["all"][player].get("trophies",[])
             try: prevTrophies = prevScoreboard["players"]["all"][player].get("trophies",[])
@@ -783,16 +786,6 @@ class DeathBotProtocol(irc.IRCClient):
                 self.announce(self.displaytag("achieve") + " "
                               + str(self.scoreboard["players"]["all"][player]["name"])
                               + alist + ".", True)
-            # report greatfoo awards by player even though they are not stored this way
-            newGF = []
-            for gf in greatFoo:
-                if player in greatFoo[gf]:
-                    if gf not in prevGreatFoo or player not in prevGreatFoo[gf]:
-                        newGF += [gf]
-            if newGF:
-                self.announce(self.displaytag("trophy") + " "
-                              + str(self.scoreboard["players"]["all"][player]["name"])
-                              + " is awarded the " + self.listTrophies(newGF) + "!")
 
         # report clan ranking changes
         # this assumes clan["n"] is the index to the clan list and it never changes
