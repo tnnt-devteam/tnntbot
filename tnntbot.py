@@ -499,6 +499,9 @@ class DeathBotProtocol(irc.IRCClient):
         self.looping_calls["trophy"].start(30)
         # Call it now to seed the trophy dict.
         self.checkScoreboard()
+        # Update local milestone summary to master every 5 minutes
+        self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
+        self.looping_calls["summary"].start(300)
 
     def tweet(self, message):
         if TWIT:
@@ -628,15 +631,21 @@ class DeathBotProtocol(irc.IRCClient):
                      "realtime": "days spent playning nethack"}
         if sender not in self.slaves:
             return
+        # if this is the first time the slave has contacted us since we restarted
+        # we don't want to announce anything, because we risk repeating ourselves
+        FirstContact = False
+        if self.summaries[sender]["games"] == 0:
+            FirstContact = True
         self.summaries[sender] = json.loads(" ".join(msgwords[1:]))
         for k in self.milestones.keys():
             t = 0
             for s in self.summaries:
                 t += self.summaries[s][k]
             if k == "realtime": t /= 86400 # days, not seconds
-            for m in self.milestones[k]:
-                if self.summary[k] and t >= m and self.summary[k] < m:
-                    self.announce("\x02TOURNAMENT MILESTONE:\x0f {0} {1}.".format(numbers.get(m,m), statnames.get(k,k)))
+            if not FirstContact:
+                for m in self.milestones[k]:
+                    if self.summary[k] and t >= m and self.summary[k] < m:
+                        self.announce("\x02TOURNAMENT MILESTONE:\x0f {0} {1}.".format(numbers.get(m,m), statnames.get(k,k)))
             self.summary[k] = t
 
 
@@ -1519,6 +1528,12 @@ class DeathBotProtocol(irc.IRCClient):
         for call in self.looping_calls.itervalues():
             call.stop()
 
+    def updateSummary(self):
+        # send most up-to-date full stats to master for milestone tracking
+        # called every time a game ends, and on a timer in case master restarted.
+        for master in MASTERS:
+            self.msg(master, "#S# " + json.dumps({k: self.stats["full"][k] for k in ('games', 'ascend', 'points', 'turns', 'realtime')}))
+
     def logReport(self, filepath):
         with filepath.open("r") as handle:
             handle.seek(self.logs_seek[filepath])
@@ -1537,9 +1552,7 @@ class DeathBotProtocol(irc.IRCClient):
                             self.msg(master, line)
                     else:
                         self.announce(line,spam)
-                # send most up-to-date full stats to master for milestone tracking
-                for master in MASTERS:
-                    self.msg(master, "#S# " + json.dumps({k: self.stats["full"][k] for k in ('games', 'ascend', 'points', 'turns', 'realtime')}))
+                self.updateSummary()
 
             self.logs_seek[filepath] = handle.tell()
 
