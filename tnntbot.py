@@ -237,12 +237,6 @@ class DeathBotProtocol(irc.IRCClient):
                 except:
                     chanLog[c] = None
                 if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
-        # round up of basic stats for milestone reporting.
-        summary = { "games" : 0,
-                    "asc"   : 0,
-                    "time"  : 0,
-                    "turns" : 0,
-                    "points": 0 }
 
     xlogfiles = {filepath.FilePath(FILEROOT+"tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.txt")}
     livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
@@ -357,6 +351,27 @@ class DeathBotProtocol(irc.IRCClient):
             hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
             reactor.callLater(hourleft, self.startHourly)
 
+            # round up of basic stats for milestone reporting.
+            self.summaries = {}
+            for s in self.slaves:
+                # summary stats for each server
+                self.summaries[s] = { "games"   : 0,
+                                      "points"  : 0,
+                                      "turns"   : 0,
+                                      "realtime": 0,
+                                      "ascend"  : 0 }
+            # existing totals so we know when we pass a threshold
+            self.summary = { "games"   : 0,
+                             "points"  : 0,
+                             "turns"   : 0,
+                             "realtime": 0,
+                             "ascend"  : 0 }
+            self.milestones = { "games"   : [500, 1000, 5000, 10000, 50000, 100000],
+                                "points"  : [50000000, 100000000, 500000000, 1000000000, 5000000000],
+                                "turns"   : [1000000, 5000000, 10000000, 50000000, 100000000],
+                                "realtime": [50, 100, 500, 1000, 5000 ], # converted to 24h days (86400s)
+                                "ascend"  : [50, 100, 200, 300, 400, 500]}
+
         #lastgame shite
         self.lastgame = "No last game recorded"
         self.lg = {}
@@ -408,7 +423,11 @@ class DeathBotProtocol(irc.IRCClient):
                          "stats"    : self.multiServerCmd,
                          # these ones are for control messages between master and slaves
                          # sender is checked, so these can't be used by the public
+                         # this one is a message from slave with current stats, for milestone reporting
+                         "#s#"      : self.checkMilestones,
+                         # query from master to slave
                          "#q#"      : self.doQuery,
+                         # responses from slave to master
                          "#p#"      : self.doResponse, # 'partial' for long responses
                          "#r#"      : self.doResponse}
         # commands executed based on contents of #Q# message
@@ -567,6 +586,7 @@ class DeathBotProtocol(irc.IRCClient):
             self.msgLog(replyto, sender + ": " + message)
 
     # Query/Response handling
+    #Q#
     def doQuery(self, sender, replyto, msgwords):
         # called when slave gets queried by master.
         # msgwords is [ #Q#, <query_id>, <orig_sender>, <command>, ... ]
@@ -576,6 +596,7 @@ class DeathBotProtocol(irc.IRCClient):
         else:
             print "Bogus slave query from " + sender + ": " + " ".join(msgwords);
 
+    #R# / #P#
     def doResponse(self, sender, replyto, msgwords):
         # called when slave returns query response to master
         # msgwords is [ #R#, <query_id>, [server-tag], command output, ...]
@@ -589,6 +610,34 @@ class DeathBotProtocol(irc.IRCClient):
                 self.queries[msgwords[1]]["callback"](self.queries.pop(msgwords[1]))
         else:
             print "Bogus slave response from " + sender + ": " + " ".join(msgwords);
+
+    #S#
+    def checkMilestones(self, sender, replyto, msgwords):
+        numbers = { 1000000: "One million",
+                    5000000: "Five million",
+                   10000000: "Ten million",
+                   50000000: "50 million",
+                  100000000: "100 million",
+                  500000000: "500 million",
+                 1000000000: "One billion",
+                 5000000000: "Five billion" }
+        statnames = { "games"  : "games played",
+                      "ascend" : "ascended games",
+                      "points" : "nethack points scored",
+                      "turns"  : "turns played",
+                     "realtime": "days spent playning nethack"}
+        if sender not in self.slaves:
+            return
+        self.summaries[sender] = json.loads(" ".join(msgwords[1:]))
+        for k in self.milestones.keys():
+            t = 0
+            for s in self.summaries:
+                t += self.summaries[s][k]
+            if k == "realtime": t /= 86400 # days, not seconds
+            for m in self.milestones[k]:
+                if self.summary[k] and t >= m and self.summary[k] < m:
+                    self.announce("\x02TOURNAMENT MILESTONE:\x0f {0} {1}.".format(numbers.get(m,m), statnames.get(k,k)))
+            self.summary[k] = t
 
 
     # Hourly/daily/special stats
@@ -793,7 +842,7 @@ class DeathBotProtocol(irc.IRCClient):
             if len(prevScoreboard["clans"]["all"]) <= int(clan["n"]):
                 self.announce(self.displaytag("clan") + " New clan registered - "
                               + str(clan["name"]) + "!")
-            elif prevScoreboard["clans"]["all"][int(clan["n"])].get("rank",0) > clan.get("rank",0):
+            elif "rank" in clan and prevScoreboard["clans"]["all"][int(clan["n"])].get("rank",0) > clan["rank"]:
                 self.announce(self.displaytag("clan") + " Clan "
                               + str(clan["name"])
                               + " moves to ranking position "
@@ -1488,6 +1537,9 @@ class DeathBotProtocol(irc.IRCClient):
                             self.msg(master, line)
                     else:
                         self.announce(line,spam)
+                # send most up-to-date full stats to master for milestone tracking
+                for master in MASTERS:
+                    self.msg(master, "#S# " + json.dumps({k: self.stats["full"][k] for k in ('games', 'ascend', 'points', 'turns', 'realtime')}))
 
             self.logs_seek[filepath] = handle.tell()
 
