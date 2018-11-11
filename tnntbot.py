@@ -1381,6 +1381,10 @@ class DeathBotProtocol(irc.IRCClient):
     def startscummed(self, game):
         return game["death"].lower() in ["quit", "escaped"] and game["points"] < 1000
 
+    # shortgame tracks consecutive games < 100 turns
+    # we report a summary of these rather than individually
+    shortgame = {}
+
     def xlogfileReport(self, game, report = True):
         # lowercased name is used for lookups
         lname = game["name"].lower()
@@ -1459,6 +1463,16 @@ class DeathBotProtocol(irc.IRCClient):
                 del self.curstreak[lname]
         # end of statistics gathering
 
+        game["shortsuff"] = ""
+        if game["turns"] < 100:
+            self.shortgame[game["name"]] = self.shortgame.get(game["name"],0) + 1
+            if report and self.shortgame[game["name"]] % 100 == 0:
+                yield("{0} has {1} consecutive games less than 100 turns.".format(game["name"], self.shortgame[game["name"]]))
+            return
+        elif game["name"] in self.shortgame:
+            game["shortsuff"] = " (and {0} others)".format(self.shortgame[game["name"]])
+            del self.shortgame[game["name"]]
+
         if (not report): return # we're just reading through old entries at startup
         if scumbag: return # must break streak even on scum games
 
@@ -1471,7 +1485,7 @@ class DeathBotProtocol(irc.IRCClient):
         else: END = self.displaytag("died")
 
         yield (END + ": {name} ({role}-{race}-{gender}-{align}), "
-                   "{points} points, {turns} turns, {death}{ascsuff}").format(**game)
+                   "{points} points, {turns} turns, {death}{shortsuff}{ascsuff}").format(**game)
 
     def livelogReport(self, event):
         if event.get("charname", False):
