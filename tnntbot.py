@@ -1470,7 +1470,7 @@ class DeathBotProtocol(irc.IRCClient):
                 yield("{0} has {1} consecutive games less than 100 turns.".format(game["name"], self.shortgame[game["name"]]))
             return
         elif game["name"] in self.shortgame:
-            game["shortsuff"] = " (and {0} others)".format(self.shortgame[game["name"]])
+            game["shortsuff"] = " (and {0} more)".format(self.shortgame[game["name"]])
             del self.shortgame[game["name"]]
 
         if (not report): return # we're just reading through old entries at startup
