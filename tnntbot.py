@@ -1470,7 +1470,13 @@ class DeathBotProtocol(irc.IRCClient):
                 yield("{0} has {1} consecutive games less than 100 turns.".format(game["name"], self.shortgame[game["name"]]))
             return
         elif game["name"] in self.shortgame:
-            game["shortsuff"] = " (and {0} more)".format(self.shortgame[game["name"]])
+            if self.shortgame[game["name"]] == 1:
+                # extremely verbose wording is reqiured here because otherwise people somehow think that the
+                # bot knows how many other factors contributed to the player's death. That would actually be
+                # pretty cool, but that info is not in the xlogfile.
+                game["shortsuff"] = " (and one other game not reported)"
+            else:
+                game["shortsuff"] = " (and {0} other games not reported)".format(self.shortgame[game["name"]])
             del self.shortgame[game["name"]]
 
         if (not report): return # we're just reading through old entries at startup
