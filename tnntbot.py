@@ -571,6 +571,10 @@ class DeathBotProtocol(irc.IRCClient):
     # ...and to twitter. announce() does this.
     # spam flag allows more verbosity in some channels
     def announce(self, message, spam = False):
+        if not TEST:
+            nowtime = datetime.now()
+            game_on =  (nowtime > self.ttime["start"]) and (nowtime < self.ttime["end"])
+            if not game_on: return
         chanlist = CHANNELS
         if spam:
             chanlist = SPAMCHANNELS #only
