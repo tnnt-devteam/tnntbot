@@ -58,3 +58,6 @@ TEST = True
 YEAR = "2018"
 CONFIGJSON = BOTDIR + "/config.json" # specify full path here
 SCOREBOARDJSON = BOTDIR + "/scoreboard.json" # specify full path here
+
+# Continue to announce this many  days after tournamnet ends (though nothing in this period will count on the scoreboard)
+GRACEDAYS = 5
