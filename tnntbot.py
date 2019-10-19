@@ -60,6 +60,8 @@ try: from tnnt.botconf import DCBRIDGE
 except: DCBRIDGE = None
 try: from tnnt.botconf import TEST
 except: TEST = False
+try: from tnnt.botconf import GRACEDAYS
+except: GRACEDAYS = 5
 try:
     from tnnt.botconf import REMOTES
 except:
@@ -571,6 +573,11 @@ class DeathBotProtocol(irc.IRCClient):
     # ...and to twitter. announce() does this.
     # spam flag allows more verbosity in some channels
     def announce(self, message, spam = False):
+        if not TEST:
+            # Only announce during tournament, or short grace period following
+            nowtime = datetime.now()
+            game_on =  (nowtime > self.ttime["start"]) and (nowtime < (self.ttime["end"] + timedelta(days=GRACEDAYS)))
+            if not game_on: return
         chanlist = CHANNELS
         if spam:
             chanlist = SPAMCHANNELS #only
