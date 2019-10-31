@@ -51,6 +51,8 @@ import random   # for !rng and friends
 import glob     # for matching in !whereis
 import json     # for tournament scoreboard things
 
+# command trigger - this should be in botconf - next time.
+TRIGGER = '$'
 from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
 from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
 from tnnt.botconf import SERVERTAG
@@ -897,7 +899,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def doScore(self, sender, replyto, msgwords):
         if len(msgwords) > 2:
-            self.respond(replyto, sender, "!" + msgwords[0]
+            self.respond(replyto, sender, TRIGGER + msgwords[0]
                          + " - get tournament score and ranking of yourself or another player")
             return
         if len(msgwords) == 2:
@@ -923,7 +925,7 @@ class DeathBotProtocol(irc.IRCClient):
         # msgwords[1] is the desired tag, msgwords[the rest] is the clan name as it appears in the scoreboard
         # case is ignored for searching, but correct case is stored in the table for faster lookup later.
         if len(msgwords) < 3:
-            self.respond(replyto, sender, "!" + msgwords[0] + " <tag> <clan name> - assigns a shorthand tag to a clan for use with !clanscore")
+            self.respond(replyto, sender, TRIGGER + msgwords[0] + " <tag> <clan name> - assigns a shorthand tag to a clan for use with " + TRIGGER + "clanscore")
             return
         if msgwords[1].lower() in [clan["name"].lower() for clan in self.scoreboard["clans"]["all"]]:
             self.respond(replyto, sender, msgwords[1] + " is already the name of a clan.") # people will be smartarses
@@ -970,11 +972,11 @@ class DeathBotProtocol(irc.IRCClient):
             self.respond(replyto, sender, "Can't find clan {0}".format(tryClan))
 
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are !help !ping !time !tell !source !lastgame !lastasc !asc !streak !rcedit !scores !sb !score !clanscore !clantag !whereis !players !who !commands" )
+        self.respond(replyto, sender, "available commands are help ping time tell source lastgame lastasc asc streak rcedit scores sb score clanscore clantag whereis players who commands" )
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
-            self.respond(replyto, sender, "!tell <recipient> <message> (leave a message for someone)")
+            self.respond(replyto, sender, TRIGGER + "tell <recipient> <message> (leave a message for someone)")
             return
         willDo = [ "Will do, {0}!",
                    "I'm on it, {0}.",
@@ -1135,7 +1137,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def usageWhereIs(self, sender, replyto, msgwords):
         if (len(msgwords) != 2):
-            self.respond(replyto, sender, "!" + msgwords[0] + " <player> - finds a player in the dungeon." + replytag)
+            self.respond(replyto, sender, TRIGGER + msgwords[0] + " <player> - finds a player in the dungeon." + replytag)
             return False
         return True
 
@@ -1305,7 +1307,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     # Listen to the chatter
     def privmsg(self, sender, dest, message):
-        sender = sender.partition("!")[0]
+        sender = sender.partition(TRIGGER)[0]
         if SLAVE and sender not in MASTERS: return
         if (dest in CHANNELS): #public message
             self.log(dest, "<"+sender+"> " + message)
@@ -1319,7 +1321,7 @@ class DeathBotProtocol(irc.IRCClient):
         # Message checks next.
         self.checkMessages(sender, dest)
         # ignore other channel noise unless !command
-        if (message[0] != '!'):
+        if (message[0] != TRIGGER):
             if (dest in CHANNELS): return
         else: # pop the '!'
             message = message[1:]
