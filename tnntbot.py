@@ -274,8 +274,9 @@ class DeathBotProtocol(irc.IRCClient):
     # for !whereis
     whereis = {"tnnt": [FILEROOT+"tnnt/var/whereis/"]}
 
-    dungeons = ["The Dungeons of Doom","Gehennom","The Gnomish Mines","The Quest",
-                "Sokoban","Fort Ludios","DevTeam's Office","Vlad's Tower","The Elemental Planes"]
+    dungeons = ["The Dungeons of Doom", "Gehennom", "The Gnomish Mines",
+                "The Quest", "Sokoban", "Fort Ludios", "DevTeam Office",
+                "Deathmatch Arena", "Vlad's Tower", "The Elemental Planes"]
 
     looping_calls = None
     commands = {}
