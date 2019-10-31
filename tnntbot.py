@@ -1307,7 +1307,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     # Listen to the chatter
     def privmsg(self, sender, dest, message):
-        sender = sender.partition(TRIGGER)[0]
+        sender = sender.partition("!")[0]
         if SLAVE and sender not in MASTERS: return
         if (dest in CHANNELS): #public message
             self.log(dest, "<"+sender+"> " + message)
