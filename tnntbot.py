@@ -56,7 +56,7 @@ TRIGGER = '$'
 from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
 from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
 from tnnt.botconf import SERVERTAG
-try: from tnnt.botconf import SPAMCHANELS
+try: from tnnt.botconf import SPAMCHANNELS
 except: SPAMCHANNELS = CHANNELS
 try: from tnnt.botconf import DCBRIDGE
 except: DCBRIDGE = None
