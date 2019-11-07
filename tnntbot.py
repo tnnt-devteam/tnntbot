@@ -638,7 +638,7 @@ class DeathBotProtocol(irc.IRCClient):
                       "ascend" : "ascended games",
                       "points" : "nethack points scored",
                       "turns"  : "turns played",
-                     "realtime": "days spent playning nethack"}
+                     "realtime": "days spent playing nethack"}
         if sender not in self.slaves:
             return
         # if this is the first time the slave has contacted us since we restarted
