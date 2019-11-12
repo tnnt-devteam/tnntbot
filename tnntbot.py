@@ -798,7 +798,7 @@ class DeathBotProtocol(irc.IRCClient):
     def listTrophies(self,trophies):
         tlist = []
         for t in trophies:
-            tlist += [config["trophies"][str(t)]["title"]]
+            tlist += [config["trophies"][str(t)]["title"].encode('utf-8')]
         return self.listStuff(tlist)
 
     def listAchievements(self, achievements, maxCount):
@@ -806,7 +806,7 @@ class DeathBotProtocol(irc.IRCClient):
             return str(len(achievements)) + " new achievements"
         alist = []
         for a in achievements:
-            alist += [config["achievements"][str(a)]["title"]]
+            alist += [config["achievements"][str(a)]["title"].encode('utf-8')]
         return self.listStuff(alist)
 
     def checkScoreboard(self):
@@ -836,7 +836,7 @@ class DeathBotProtocol(irc.IRCClient):
                     newTrophies += [t["trophy"]]
             if newTrophies:
                 self.announce(self.displaytag("trophy") + " "
-                              + str(self.scoreboard["players"]["all"][player]["name"])
+                              + str(self.scoreboard["players"]["all"][player]["name"].encode('utf-8'))
                               + " now has " + self.listTrophies(newTrophies) + "!")
             currAch = self.scoreboard["players"]["all"][player].get("achievements",[])
             try: prevAch = prevScoreboard["players"]["all"][player].get("achievements",[])
@@ -852,7 +852,7 @@ class DeathBotProtocol(irc.IRCClient):
                 else:
                     alist = " just earned " + alist
                 self.announce(self.displaytag("achieve") + " "
-                              + str(self.scoreboard["players"]["all"][player]["name"])
+                              + str(self.scoreboard["players"]["all"][player]["name"].encode('utf-8'))
                               + alist + ".", True)
 
         # report clan ranking changes
@@ -860,10 +860,10 @@ class DeathBotProtocol(irc.IRCClient):
         for clan in self.scoreboard["clans"]["all"]:
             if len(prevScoreboard["clans"]["all"]) <= int(clan["n"]):
                 self.announce(self.displaytag("clan") + " New clan registered - "
-                              + str(clan["name"]) + "!")
+                              + str(clan["name"].encode('utf-8')) + "!")
             elif "rank" in clan and prevScoreboard["clans"]["all"][int(clan["n"])].get("rank",0) > clan["rank"]:
                 self.announce(self.displaytag("clan") + " Clan "
-                              + str(clan["name"])
+                              + str(clan["name"].encode('utf-8'))
                               + " advances to rank "
                               + str(clan["rank"]) + "!")
 
