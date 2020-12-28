@@ -1500,7 +1500,7 @@ class DeathBotProtocol(irc.IRCClient):
             END = self.displaytag(game["death"])
         else: END = self.displaytag("died")
 
-        yield (END + ": {name} ({role}-{race}-{gender}-{align}), "
+        yield (END + ": {name} ({role} {race} {gender} {align}), "
                    "{points} points, {turns} turns, {death}{shortsuff}{ascsuff}").format(**game)
 
     def livelogReport(self, event):
