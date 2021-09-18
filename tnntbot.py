@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 
 *** THIS IS THE TNNT BOT ***
@@ -36,16 +37,19 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 from twisted.internet import reactor, protocol, ssl, task
+from twisted.internet.protocol import Protocol, ReconnectingClientFactory
 from twisted.words.protocols import irc
-from twisted.python import filepath
+from twisted.python import filepath, log
+from twisted.python.logfile import DailyLogFile
 from twisted.application import internet, service
 from datetime import datetime, timedelta
+import base64
 import time     # for !time
 import ast      # for conduct/achievement bitfields - not really used
 import os       # for check path exists (dumplogs), and chmod
 import stat     # for chmod mode bits
 import re       # for hello, and other things.
-import urllib   # for dealing with NH4 variants' #&$#@ spaces in filenames.
+import urllib.request, urllib.parse, urllib.error   # for dealing with NH4 variants' #&$#@ spaces in filenames.
 import shelve   # for persistent !tell messages
 import random   # for !rng and friends
 import glob     # for matching in !whereis
@@ -56,35 +60,45 @@ TRIGGER = '$'
 from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
 from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
 from tnnt.botconf import SERVERTAG
-try: from tnnt.botconf import SPAMCHANNELS
-except: SPAMCHANNELS = CHANNELS
+try:
+    from tnnt.botconf import SPAMCHANNELS
+except:
+    SPAMCHANNELS = CHANNELS
 try: from tnnt.botconf import DCBRIDGE
-except: DCBRIDGE = None
-try: from tnnt.botconf import TEST
-except: TEST = False
-try: from tnnt.botconf import GRACEDAYS
-except: GRACEDAYS = 5
+except:
+    DCBRIDGE = None
+try:
+    from tnnt.botconf import TEST
+except:
+    TEST = False
+try:
+    from tnnt.botconf import GRACEDAYS
+except:
+    GRACEDAYS = 5
 try:
     from tnnt.botconf import REMOTES
 except:
-    SLAVE = True #if we have no slaves, we (probably) are the slave
+    SLAVE = True
     REMOTES = {}
 try:
     from tnnt.botconf import MASTERS
 except:
-    SLAVE = False #if we have no master we (definitely) are the master
+    SLAVE = False
     MASTERS = []
 try:
-    from tnnt.botconf import LOGROOT
+    from tnnt.botconf import LOGBASE, IRCLOGS
 except:
-    LOGROOT = None
+    LOGBASE = None
+    IRCLOGS = None
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
 TWIT = False
 if not SLAVE:
-    try: from tnnt.botconf import CONFIGJSON
-    except: CONFIGJSON = "config.json" # assume current directory
+    try:
+        from tnnt.botconf import CONFIGJSON
+    except:
+        CONFIGJSON = "config.json" # assume current directory
 
     # slurp the whole shebang into a big-arse dict.
     # need to parse out the comments. Thses must start with '# ' or '#-'
@@ -92,8 +106,10 @@ if not SLAVE:
     config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
 
     # scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
-    try: from tnnt.botconf import SCOREBOARDJSON
-    except: SCOREBOARDJSON = "scoreboard.json" # assume current directory
+    try:
+        from tnnt.botconf import SCOREBOARDJSON
+    except:
+        SCOREBOARDJSON = "scoreboard.json" # assume current directory
 
     # twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
     # pip install twitter
@@ -102,12 +118,12 @@ if not SLAVE:
     try:
         from tnnt.botconf import TWITAUTH
     except:
-        print "no TWITAUTH - twitter disabled"
+        print("no TWITAUTH - twitter disabled")
         TWIT = False
     try:
         from twitter import Twitter, OAuth
     except:
-        print "Unable to import from twitter module"
+        print("Unable to import from twitter module")
         TWIT = False
 
 CLANTAGJSON = BOTDIR + "/clantag.json"
@@ -162,27 +178,15 @@ xlogfile_parse = dict.fromkeys(
      "uid", "turns", "xplevel", "exp","depth","dnum","score","amulet"), int)
 xlogfile_parse.update(dict.fromkeys(
     ("conduct", "event", "carried", "flags", "achieve"), ast.literal_eval))
-#xlogfile_parse["starttime"] = fromtimestamp_int
-#xlogfile_parse["curtime"] = fromtimestamp_int
-#xlogfile_parse["endtime"] = fromtimestamp_int
-#xlogfile_parse["realtime"] = timedelta_int
-#xlogfile_parse["deathdate"] = xlogfile_parse["birthdate"] = isodate
-#xlogfile_parse["dumplog"] = fixdump
 
 def parse_xlogfile_line(line, delim):
     record = {}
-    for field in line.strip().split(delim):
+    for field in line.strip().decode(encoding='UTF-8', errors='ignore').split(delim):
         key, _, value = field.partition("=")
         if key in xlogfile_parse:
             value = xlogfile_parse[key](value)
         record[key] = value
     return record
-
-#def xlogfile_entries(fp):
-#    if fp is None: return
-#    with fp.open("rt") as handle:
-#        for line in handle:
-#            yield parse_xlogfile_line(line)
 
 class DeathBotProtocol(irc.IRCClient):
     nickname = NICK
@@ -206,8 +210,8 @@ class DeathBotProtocol(irc.IRCClient):
            gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
            twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
        except Exception as e:
-           print "Failed to auth to twitter"
-           print e
+           print("Failed to auth to twitter")
+           print(e)
            TWIT = False
 
 
@@ -220,8 +224,8 @@ class DeathBotProtocol(irc.IRCClient):
 
     # tnnt runs on UTC
     os.environ["TZ"] = ":UTC"
-    ttime = { "start": datetime(int(YEAR),11,01,00,00,00),
-              "end"  : datetime(int(YEAR),12,01,00,00,00)
+    ttime = { "start": datetime(int(YEAR),11,0o1,00,00,00),
+              "end"  : datetime(int(YEAR),12,0o1,00,00,00)
             }
 
     chanLog = {}
@@ -234,8 +238,8 @@ class DeathBotProtocol(irc.IRCClient):
         logday = time.strftime("%d")
         for c in CHANNELS:
             activity[c] = 0
-            if LOGROOT:
-                chanLogName[c] = LOGROOT + c + time.strftime("-%Y-%m-%d.log")
+            if IRCLOGS:
+                chanLogName[c] = IRCLOGS + "/" + c + time.strftime("-%Y-%m-%d.log")
                 try:
                     chanLog[c] = open(chanLogName[c],'a')
                 except:
@@ -306,17 +310,18 @@ class DeathBotProtocol(irc.IRCClient):
 
     def irc_CAP(self, prefix, params):
         if params[1] != 'ACK' or params[2].split() != ['sasl']:
-            print 'sasl not available'
+            print('sasl not available')
             self.quit('')
-        sasl = ('{0}\0{0}\0{1}'.format(self.nickname, self.password)).encode('base64').strip()
+        sasl_string = '{0}\0{0}\0{1}'.format(self.nickname, self.password)
+        sasl_b64_bytes = base64.b64encode(sasl_string.encode(encoding='UTF-8',errors='strict'))
         self.sendLine('AUTHENTICATE PLAIN')
-        self.sendLine('AUTHENTICATE ' + sasl)
+        self.sendLine('AUTHENTICATE ' + sasl_b64_bytes.decode('UTF-8'))
 
     def irc_903(self, prefix, params):
         self.sendLine('CAP END')
 
     def irc_904(self, prefix, params):
-        print 'sasl auth failed', params
+        print('sasl auth failed', params)
         self.quit('')
     irc_905 = irc_904
 
@@ -331,9 +336,9 @@ class DeathBotProtocol(irc.IRCClient):
         self.logs = {}
         # boolean for whether announcements from the log are 'spam', after dumpfmt
         # true for livelogs, false for xlogfiles
-        for xlogfile, (variant, delim, dumpfmt) in self.xlogfiles.iteritems():
+        for xlogfile, (variant, delim, dumpfmt) in self.xlogfiles.items():
             self.logs[xlogfile] = (self.xlogfileReport, variant, delim, dumpfmt, False)
-        for livelog, (variant, delim) in self.livelogs.iteritems():
+        for livelog, (variant, delim) in self.livelogs.items():
             self.logs[livelog] = (self.livelogReport, variant, delim, "", True)
 
         self.logs_seek = {}
@@ -514,12 +519,12 @@ class DeathBotProtocol(irc.IRCClient):
             try:
                 if TEST:
                      message = "[TEST] " + message
-                     print "Not tweeting in test mode: " + message
+                     print("Not tweeting in test mode: " + message)
                      return
                 self.twit.statuses.update(status=message)
             except Exception as e:
-                print "Bad tweet: " + message
-                print e
+                print("Bad tweet: " + message)
+                print(e)
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason
@@ -533,11 +538,11 @@ class DeathBotProtocol(irc.IRCClient):
         self.msg("NickServ", "identify " + nn + " " + self.password)
 
     def logRotate(self):
-        if not LOGROOT: return
+        if not IRCLOGS: return
         self.logday = time.strftime("%d")
         for c in CHANNELS:
             if self.chanLog[c]: self.chanLog[c].close()
-            self.chanLogName[c] = LOGROOT + c + time.strftime("-%Y-%m-%d.log")
+            self.chanLogName[c] = IRCLOGS + "/" + c + time.strftime("-%Y-%m-%d.log")
             try: self.chanLog[c] = open(self.chanLogName[c],'a') # 'w' is probably fine here
             except: self.chanLog[c] = None
             if self.chanLog[c]: os.chmod(self.chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
@@ -607,7 +612,7 @@ class DeathBotProtocol(irc.IRCClient):
             # sender is passed to master; msgwords[2] is passed tp sender
             self.qCommands[msgwords[3]](sender,msgwords[2],msgwords[1],msgwords[3:])
         else:
-            print "Bogus slave query from " + sender + ": " + " ".join(msgwords);
+            print("Bogus slave query from " + sender + ": " + " ".join(msgwords));
 
     #R# / #P#
     def doResponse(self, sender, replyto, msgwords):
@@ -622,7 +627,7 @@ class DeathBotProtocol(irc.IRCClient):
                 #all slaves have responded
                 self.queries[msgwords[1]]["callback"](self.queries.pop(msgwords[1]))
         else:
-            print "Bogus slave response from " + sender + ": " + " ".join(msgwords);
+            print("Bogus slave response from " + sender + ": " + " ".join(msgwords));
 
     #S#
     def checkMilestones(self, sender, replyto, msgwords):
@@ -647,7 +652,7 @@ class DeathBotProtocol(irc.IRCClient):
         if self.summaries[sender]["games"] == 0:
             FirstContact = True
         self.summaries[sender] = json.loads(" ".join(msgwords[1:]))
-        for k in self.milestones.keys():
+        for k in list(self.milestones.keys()):
             t = 0
             for s in self.summaries:
                 t += self.summaries[s][k]
@@ -704,7 +709,7 @@ class DeathBotProtocol(irc.IRCClient):
                 statmsg += stat1.format(**stats)
             for stat2 in stat2lst:
                 # Find whatever thing from the list above had the most games, and how many games it had
-                maxStat2 = dict(zip(["name","number"],max(stats[stat2].iteritems(), key=lambda x:x[1])))
+                maxStat2 = dict(list(zip(["name","number"],max(iter(stats[stat2].items()), key=lambda x:x[1]))))
                 # Expand the Rog->Rogue, Fem->Female, etc
                 #maxStat2["name"] = dict(role.items() + race.items() + gender.items() + align.items()).get(maxStat2["name"],maxStat2["name"])
                 # convert number to % of total (non-scum) games
@@ -819,16 +824,16 @@ class DeathBotProtocol(irc.IRCClient):
         try:
             self.scoreboard = json.load(open(SCOREBOARDJSON))
         except:
-            print "Failed to load scoreboard from " + SCOREBOARDJSON
+            print("Failed to load scoreboard from " + SCOREBOARDJSON)
             self.scoreboard = prevScoreboard
             return
 
         if not prevScoreboard: return
         if "all" not in self.scoreboard["players"]: return # scoreboard is empty at the start
         prevGreatFoo = prevScoreboard["trophies"]["players"].get("greatfoo",{})
-        for player in self.scoreboard["players"]["all"]:
-            currTrophies = self.scoreboard["players"]["all"][player].get("trophies",[])
-            try: prevTrophies = prevScoreboard["players"]["all"][player].get("trophies",[])
+        for player in self.scoreboard["players"]:
+            currTrophies = self.scoreboard["players"][player].get("trophies",[])
+            try: prevTrophies = prevScoreboard["players"][player].get("trophies",[])
             except: prevTrophies = [] # Player won't be in prev, if it's their 1st game
             newTrophies = []
             for t in currTrophies:
@@ -836,10 +841,10 @@ class DeathBotProtocol(irc.IRCClient):
                     newTrophies += [t["trophy"]]
             if newTrophies:
                 self.announce(self.displaytag("trophy") + " "
-                              + str(self.scoreboard["players"]["all"][player]["name"].encode('utf-8'))
+                              + str(self.scoreboard["players"][player]["name"].encode('utf-8'))
                               + " now has " + self.listTrophies(newTrophies) + "!")
-            currAch = self.scoreboard["players"]["all"][player].get("achievements",[])
-            try: prevAch = prevScoreboard["players"]["all"][player].get("achievements",[])
+            currAch = self.scoreboard["players"][player].get("achievements",[])
+            try: prevAch = prevScoreboard["players"][player].get("achievements",[])
             except: prevAch = []
             newAch = []
             for a in currAch:
@@ -852,16 +857,16 @@ class DeathBotProtocol(irc.IRCClient):
                 else:
                     alist = " just earned " + alist
                 self.announce(self.displaytag("achieve") + " "
-                              + str(self.scoreboard["players"]["all"][player]["name"].encode('utf-8'))
+                              + str(self.scoreboard["players"][player]["name"].encode('utf-8'))
                               + alist + ".", True)
 
         # report clan ranking changes
         # this assumes clan["n"] is the index to the clan list and it never changes
-        for clan in self.scoreboard["clans"]["all"]:
-            if len(prevScoreboard["clans"]["all"]) <= int(clan["n"]):
+        for clan in self.scoreboard["clans"]:
+            if len(prevScoreboard["clans"]) <= int(clan["n"]):
                 self.announce(self.displaytag("clan") + " New clan registered - "
                               + str(clan["name"].encode('utf-8')) + "!")
-            elif "rank" in clan and prevScoreboard["clans"]["all"][int(clan["n"])].get("rank",0) > clan["rank"]:
+            elif "rank" in clan and prevScoreboard["clans"][int(clan["n"])].get("rank",0) > clan["rank"]:
                 self.announce(self.displaytag("clan") + " Clan "
                               + str(clan["name"].encode('utf-8'))
                               + " advances to rank "
@@ -910,15 +915,15 @@ class DeathBotProtocol(irc.IRCClient):
         plr = PLR.lower()
         # case insensitive search
         player = None
-        for p in self.scoreboard["players"]["all"].keys():
+        for p in list(self.scoreboard["players"]["all"].keys()):
             if plr == p.lower():
                 player = p
                 break
         if not player:
             self.respond(replyto, sender, "Can't find player {0} on the scoreboard.".format(PLR))
             return
-        score = int(self.scoreboard["players"]["all"][player]["score"])
-        rank = int(self.scoreboard["players"]["all"][player]["rank"])
+        score = int(self.scoreboard["players"][player]["score"])
+        rank = int(self.scoreboard["players"][player]["rank"])
         self.respond(replyto, sender, str(player) + " - Score: {0} - Rank: {1}".format(score, rank))
 
     def doClanTag(self, sender, replyto, msgwords):
@@ -930,7 +935,7 @@ class DeathBotProtocol(irc.IRCClient):
         if msgwords[1].lower() in [clan["name"].lower() for clan in self.scoreboard["clans"]["all"]]:
             self.respond(replyto, sender, msgwords[1] + " is already the name of a clan.") # people will be smartarses
             return
-        for clan in self.scoreboard["clans"]["all"]:
+        for clan in self.scoreboard["clans"]:
             if clan["name"].lower() == " ".join(msgwords[2:]).lower():
                 self.clanTag[msgwords[1].lower()] = {"n": int(clan["n"]), "name": str(clan["name"])}
                 self.respond(replyto, sender, "Clan Tag {0} assigned to {1}".format(msgwords[1],str(clan["name"])))
@@ -950,7 +955,7 @@ class DeathBotProtocol(irc.IRCClient):
                 tryClan = splitNick[1]
             else:
                 # look up clan of player(sender)
-                for clan in self.scoreboard["clans"]["all"]:
+                for clan in self.scoreboard["clans"]:
                     # fugly case-insensitive search
                     if sender.lower() in " ".join(clan["players"]).lower().split(" "):
                         name, score, rank = [clan[x] for x in ["name","score","rank"]]
@@ -960,10 +965,10 @@ class DeathBotProtocol(irc.IRCClient):
                 self.respond(replyto, sender, "Could not get clan membership for " + sender + ".")
                 return
             if tryClan.lower() in self.clanTag:
-                clan = self.scoreboard["clans"]["all"][self.clanTag[tryClan.lower()]["n"]]
+                clan = self.scoreboard["clans"][self.clanTag[tryClan.lower()]["n"]]
                 name, score, rank = [clan[x] for x in ["name","score","rank"]]
             else:
-                for clan in self.scoreboard["clans"]["all"]:
+                for clan in self.scoreboard["clans"]:
                     if clan["name"].lower() == tryClan.lower():
                         name, score, rank = [clan[x] for x in ["name","score","rank"]]
         if name:
@@ -1066,8 +1071,8 @@ class DeathBotProtocol(irc.IRCClient):
         self.queries[q]["finished"] = {}
         message = "#Q# " + " ".join([q,sender] + msgwords)
 
-        for sl in self.slaves.keys():
-            if TEST: print "forwardQuery: " + sl + " " + message
+        for sl in list(self.slaves.keys()):
+            if TEST: print("forwardQuery: " + sl + " " + message)
             self.msg(sl,message)
 
     # Multi-server command entry point (forwards query to slaves)
@@ -1119,7 +1124,7 @@ class DeathBotProtocol(irc.IRCClient):
     # !players - respond to forwarded query and actually pull the info
     def getPlayers(self, master, sender, query, msgwords):
         plrvar = ""
-        for var in self.inprog.keys():
+        for var in list(self.inprog.keys()):
             for inpdir in self.inprog[var]:
                 for inpfile in glob.iglob(inpdir + "*.ttyrec"):
                     # /stuff/crap/PLAYER:shit:garbage.ttyrec
@@ -1132,7 +1137,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     # !players callback. Actually print the output.
     def outPlayers(self,q):
-        outmsg = " | ".join(q["resp"].values())
+        outmsg = " | ".join(list(q["resp"].values()))
         self.respond(q["replyto"],q["sender"],outmsg)
 
     def usageWhereIs(self, sender, replyto, msgwords):
@@ -1144,7 +1149,7 @@ class DeathBotProtocol(irc.IRCClient):
     def getWhereIs(self, master, sender, query, msgwords):
         ammy = ["", " (with Amulet)"]
         # look for inrpogress file first, only report active games
-        for var in self.inprog.keys():
+        for var in list(self.inprog.keys()):
             for inpdir in self.inprog[var]:
                 for inpfile in glob.iglob(inpdir + "*.ttyrec"):
                     plr = inpfile.split("/")[-1].split(":")[0]
@@ -1434,7 +1439,7 @@ class DeathBotProtocol(irc.IRCClient):
             # quote only the game-specific part, not the prefix.
             # Otherwise it quotes the : in https://
             # assume the rest of the url prefix is safe.
-            dumpurl = urllib.quote(game["dumpfmt"].format(**game))
+            dumpurl = urllib.parse.quote(game["dumpfmt"].format(**game))
             dumpurl = self.dump_url_prefix.format(**game) + dumpurl
         self.lg[lname] = dumpurl
         self.lastgame = dumpurl
@@ -1555,7 +1560,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def connectionLost(self, reason=None):
         if self.looping_calls is None: return
-        for call in self.looping_calls.itervalues():
+        for call in self.looping_calls.values():
             call.stop()
 
     def updateSummary(self):
@@ -1586,10 +1591,36 @@ class DeathBotProtocol(irc.IRCClient):
 
             self.logs_seek[filepath] = handle.tell()
 
-if __name__ == "__builtin__":
-    f = protocol.ReconnectingClientFactory()
-    f.protocol = DeathBotProtocol
-    application = service.Application("DeathBot")
-    deathservice = internet.SSLClient(HOST, PORT, f,
-                                      ssl.ClientContextFactory())
-    deathservice.setServiceParent(application)
+class DeathBotFactory(ReconnectingClientFactory):
+    def startedConnecting(self, connector):
+        print('Started to connect.')
+
+    def buildProtocol(self, addr):
+        print('Connected.')
+        print('Resetting reconnection delay')
+        self.resetDelay()
+        p = DeathBotProtocol()
+        p.factory = self
+        return p
+
+    def clientConnectionLost(self, connector, reason):
+        print('Lost connection.  Reason:', reason)
+        ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
+
+    def clientConnectionFailed(self, connector, reason):
+        print('Connection failed. Reason:', reason)
+        ReconnectingClientFactory.clientConnectionFailed(self, connector,
+                                                         reason)
+
+if __name__ == '__main__':
+    # initialize logging
+    log.startLogging(DailyLogFile.fromFullPath(LOGBASE))
+
+    # create factory protocol and application
+    f = DeathBotFactory()
+
+    # connect factory to this host and port
+    reactor.connectSSL(HOST, PORT, f, ssl.ClientContextFactory())
+
+    # run bot
+    reactor.run()

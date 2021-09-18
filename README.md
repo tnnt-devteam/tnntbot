@@ -1,4 +1,9 @@
 # tnntbot
+
+## dependencies
+pip install twisted pyopenssl service-identity twitter
+
+
 IRC/Twitter Announce Bot for TNNT hosted on hardfought.org, based on hardfought's main irc bot "Beholder", with some functions pulled from the "NotTheOracle" bot we used for the 2017 /dev/null/tribute tournament https://github.com/NHTangles/NotTheOracle.  
 Can run distributed master/slave network to report and aggregate stats from multiple servers (run an instance on each server and configure as described below)
 
