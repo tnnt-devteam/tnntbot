@@ -35,98 +35,25 @@ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
-
-from twisted.internet import reactor, protocol, ssl, task
-from twisted.internet.protocol import Protocol, ReconnectingClientFactory
+from tnnt.ircbot.config import CroesusConfig
+from twisted.internet import reactor, ssl, task
+from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.words.protocols import irc
 from twisted.python import filepath, log
 from twisted.python.logfile import DailyLogFile
-from twisted.application import internet, service
 from datetime import datetime, timedelta
+from pathlib import Path
 import base64
-import time     # for !time
-import ast      # for conduct/achievement bitfields - not really used
-import os       # for check path exists (dumplogs), and chmod
-import stat     # for chmod mode bits
-import re       # for hello, and other things.
-import urllib.request, urllib.parse, urllib.error   # for dealing with NH4 variants' #&$#@ spaces in filenames.
-import shelve   # for persistent !tell messages
-import random   # for !rng and friends
-import glob     # for matching in !whereis
-import json     # for tournament scoreboard things
-
-# command trigger - this should be in botconf - next time.
-TRIGGER = '$'
-from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
-from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
-from tnnt.botconf import SERVERTAG
-try:
-    from tnnt.botconf import SPAMCHANNELS
-except:
-    SPAMCHANNELS = CHANNELS
-try: from tnnt.botconf import DCBRIDGE
-except:
-    DCBRIDGE = None
-try:
-    from tnnt.botconf import TEST
-except:
-    TEST = False
-try:
-    from tnnt.botconf import GRACEDAYS
-except:
-    GRACEDAYS = 5
-try:
-    from tnnt.botconf import REMOTES
-except:
-    SLAVE = True
-    REMOTES = {}
-try:
-    from tnnt.botconf import MASTERS
-except:
-    SLAVE = False
-    MASTERS = []
-try:
-    from tnnt.botconf import LOGBASE, IRCLOGS
-except:
-    LOGBASE = None
-    IRCLOGS = None
-
-# config.json is where all the tournament trophies, achievements, other stuff are defined.
-# it's mainly used for driving the official scoreboard but we use it here too.
-TWIT = False
-if not SLAVE:
-    try:
-        from tnnt.botconf import CONFIGJSON
-    except:
-        CONFIGJSON = "config.json" # assume current directory
-
-    # slurp the whole shebang into a big-arse dict.
-    # need to parse out the comments. Thses must start with '# ' or '#-'
-    # because my regexp is dumb
-    config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
-
-    # scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
-    try:
-        from tnnt.botconf import SCOREBOARDJSON
-    except:
-        SCOREBOARDJSON = "scoreboard.json" # assume current directory
-
-    # twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
-    # pip install twitter
-    # set TWIT to false to prevent tweeting
-    TWIT = True
-    try:
-        from tnnt.botconf import TWITAUTH
-    except:
-        print("no TWITAUTH - twitter disabled")
-        TWIT = False
-    try:
-        from twitter import Twitter, OAuth
-    except:
-        print("Unable to import from twitter module")
-        TWIT = False
-
-CLANTAGJSON = BOTDIR + "/clantag.json"
+import time
+import ast
+import os
+import stat
+import re
+import urllib.request, urllib.parse, urllib.error
+import shelve
+import random
+import glob
+import json
 
 # some lookup tables for formatting messages
 # these are not yet in conig.json
@@ -189,71 +116,15 @@ def parse_xlogfile_line(line, delim):
     return record
 
 class DeathBotProtocol(irc.IRCClient):
-    nickname = NICK
-    username = USERNAME
-    realname = REALNAME
-    admin = ADMIN
-    slaves = {}
-    for r in REMOTES:
-        slaves[REMOTES[r][1]] = r
-    # if we're the master, include ourself on the slaves list
-    if not SLAVE:
-        if NICK not in slaves: slaves[NICK] = [WEBROOT,NICK,FILEROOT]
-        #...and the masters list
-        if NICK not in MASTERS: MASTERS += [NICK]
-    try:
-        password = open(PWFILE, "r").read().strip()
-    except:
-        password = "NotTHEPassword"
-    if TWIT:
-       try:
-           gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
-           twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
-       except Exception as e:
-           print("Failed to auth to twitter")
-           print(e)
-           TWIT = False
-
-
     sourceURL = "https://github.com/tnnt-devteam/tnntbot"
     versionName = "tnntbot.py"
     versionNum = "0.1"
-
-    dump_url_prefix = WEBROOT + "userdata/{name[0]}/{name}/"
-    dump_file_prefix = FILEROOT + "dgldir/userdata/{name[0]}/{name}/"
-
-    # tnnt runs on UTC
     os.environ["TZ"] = ":UTC"
-    ttime = { "start": datetime(int(YEAR),11,0o1,00,00,00),
-              "end"  : datetime(int(YEAR),12,0o1,00,00,00)
-            }
-
     chanLog = {}
     chanLogName = {}
     activity = {}
-    if not SLAVE:
-        scoresURL = "https://www.hardfought.org/tnnt/trophies.html or https://www.hardfought.org/tnnt/clans.html"
-        rceditURL = WEBROOT + "nethack/rcedit"
-        helpURL = sourceURL + "/blob/master/botuse.txt"
-        logday = time.strftime("%d")
-        for c in CHANNELS:
-            activity[c] = 0
-            if IRCLOGS:
-                chanLogName[c] = IRCLOGS + "/" + c + time.strftime("-%Y-%m-%d.log")
-                try:
-                    chanLog[c] = open(chanLogName[c],'a')
-                except:
-                    chanLog[c] = None
-                if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
-
-    xlogfiles = {filepath.FilePath(FILEROOT+"tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.html")}
-    livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
     scoreboard = {}
-    try:
-        clanTag = json.load(open(CLANTAGJSON))
-    except:
-        clanTag = {}
-
+    clanTag = {}
     # for displaying variants and server tags in colour
     displaystring = {"hdf-us"  : "\x1D\x0304US\x03\x0F",
                      "hdf-au"  : "\x1D\x0303AU\x03\x0F",
@@ -271,21 +142,51 @@ class DeathBotProtocol(irc.IRCClient):
     def displaytag(self, thing):
        return '[' + self.displaystring.get(thing,thing) + ']'
 
-    # for !who or !players or whatever we end up calling it
-    # Reduce the repetitive crap
-    DGLD=FILEROOT+"dgldir/"
-    INPR=DGLD+"inprogress-"
-    inprog = {"tnnt" : [INPR+"tnnt/"]}
-
-    # for !whereis
-    whereis = {"tnnt": [FILEROOT+"tnnt/var/whereis/"]}
-
     dungeons = ["The Dungeons of Doom", "Gehennom", "The Gnomish Mines",
                 "The Quest", "Sokoban", "Fort Ludios", "DevTeam Office",
                 "Deathmatch Arena", "Vlad's Tower", "The Elemental Planes"]
 
     looping_calls = None
     commands = {}
+
+    def __init__(self, conf):
+        self.nickname = conf.nick
+        self.username = conf.username
+        self.realname = conf.realname
+        self.admins = conf.admins
+        self.channels = conf.channels
+        self.bridge_bot = conf.bridge_bot
+
+        try:
+            file = Path(conf.botroot, conf.static_defs)
+            self.static_defs = json.load(file.open())
+        except:
+            log.err(f"couldn't load JSON definitions file {file}")
+            raise
+
+        self.conf = conf
+        try:
+            self.password = open(conf.pwfile, "r").read().strip()
+        except:
+            self.password = 'bad_pass'
+
+        self.ttime = { "start": datetime(int(conf.current_year),11,0o1,00,00,00),
+                       "end"  : datetime(int(conf.current_year),12,0o1,00,00,00)  }
+        
+        self.scoreboard_file = Path(conf.botroot, conf.scoreboard_file)
+        self.dump_url_prefix = conf.webroot + "userdata/{name[0]}/{name}/"
+        self.dump_file_prefix = conf.nhroot + "dgldir/userdata/{name[0]}/{name}/"
+        self.xlogfiles = {filepath.FilePath(conf.nhroot + "tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.html")}
+        self.livelogs  = {filepath.FilePath(conf.nhroot + "tnnt/var/livelog"): ("tnnt", "\t")}
+        self.dgl_dir = conf.nhroot + "dgldir/"
+        self.inprog_dir = self.dgl_dir + "inprogress-"
+        self.inprog = {"tnnt": [self.inprog_dir + "tnnt/"] }
+        self.whereis = { "tnnt": [conf.nhroot + "tnnt/var/whereis"] }
+
+        try:
+            self.clanTag = json.load(open(conf.clantagsjson))
+        except:
+            pass
 
     def initStats(self, statset):
         self.stats[statset] = { "race"    : {},
@@ -328,10 +229,14 @@ class DeathBotProtocol(irc.IRCClient):
     def signedOn(self):
         self.factory.resetDelay()
         self.startHeartbeat()
-        if not SLAVE:
-            for c in CHANNELS:
-                self.join(c)
+        for c in self.channels:
+            self.join(c)
         random.seed()
+
+        # for !tell
+        self.tellbuf = shelve.open(self.conf.botroot + "/tellmsg.db", writeback=True)
+        # for !setmintc
+        self.plr_tc = shelve.open(self.conf.botroot + "/plrtc.db", writeback=True)
 
         self.logs = {}
         # boolean for whether announcements from the log are 'spam', after dumpfmt
@@ -350,65 +255,25 @@ class DeathBotProtocol(irc.IRCClient):
         self.initStats("day")
         self.initStats("full")
 
-        if not SLAVE:
-            # work out how much hour is left
-            nowtime = datetime.now()
-            # add 1 hour, then subtract min, sec, usec to get exact time of next hour.
-            nexthour = nowtime + timedelta(hours=1)
-            nexthour -= timedelta(minutes=nexthour.minute,
-                                  seconds=nexthour.second,
-                                  microseconds=nexthour.microsecond)
-            hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
-            reactor.callLater(hourleft, self.startHourly)
+        # work out how much hour is left
+        nowtime = datetime.now()
+        # add 1 hour, then subtract min, sec, usec to get exact time of next hour.
+        nexthour = nowtime + timedelta(hours=1)
+        nexthour -= timedelta(minutes=nexthour.minute,
+                              seconds=nexthour.second,
+                              microseconds=nexthour.microsecond)
+        hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
+        reactor.callLater(hourleft, self.startHourly)
 
-            # round up of basic stats for milestone reporting.
-            self.summaries = {}
-            for s in self.slaves:
-                # summary stats for each server
-                self.summaries[s] = { "games"   : 0,
-                                      "points"  : 0,
-                                      "turns"   : 0,
-                                      "realtime": 0,
-                                      "ascend"  : 0 }
-            # existing totals so we know when we pass a threshold
-            self.summary = { "games"   : 0,
-                             "points"  : 0,
-                             "turns"   : 0,
-                             "realtime": 0,
-                             "ascend"  : 0 }
-            self.milestones = { "games"   : [500, 1000, 5000, 10000, 50000, 100000],
-                                "points"  : [50000000, 100000000, 500000000, 1000000000, 5000000000],
-                                "turns"   : [1000000, 5000000, 10000000, 50000000, 100000000],
-                                "realtime": [50, 100, 500, 1000, 5000 ], # converted to 24h days (86400s)
-                                "ascend"  : [50, 100, 200, 300, 400, 500]}
-
-        #lastgame shite
+        # these stats may be reset every time Beholder disconnects
         self.lastgame = "No last game recorded"
         self.lg = {}
         self.lastasc = "No last ascension recorded"
         self.la = {}
-
-        # streaks
         self.curstreak = {}
         self.longstreak = {}
-
-        # ascensions (for !asc)
-        # "!asc plr" will give asc stats for player.
-        # "!asc" will be as above, assuming requestor's nick.
-        # asc[player][role] = count;
-        # asc[player][race] = count;
-        # asc[player][align] = count;
-        # asc[player][gender] = count;
-        # assumes 3-char abbreviations for role/race/align/gender, and no overlaps.
-        # for asc ratio we need total games too
-        # allgames[player] = count;
         self.asc = {}
         self.allgames = {}
-
-        # for !tell
-        self.tellbuf = shelve.open(BOTDIR + "/tellmsg.db", writeback=True)
-        # for !setmintc
-        self.plr_tc = shelve.open(BOTDIR + "/plrtc.db", writeback=True)
 
         # Commands must be lowercase here.
         self.commands = {"ping"     : self.doPing,
@@ -430,16 +295,7 @@ class DeathBotProtocol(irc.IRCClient):
                          "asc"      : self.multiServerCmd,
                          "streak"   : self.multiServerCmd,
                          "whereis"  : self.multiServerCmd,
-                         "stats"    : self.multiServerCmd,
-                         # these ones are for control messages between master and slaves
-                         # sender is checked, so these can't be used by the public
-                         # this one is a message from slave with current stats, for milestone reporting
-                         "#s#"      : self.checkMilestones,
-                         # query from master to slave
-                         "#q#"      : self.doQuery,
-                         # responses from slave to master
-                         "#p#"      : self.doResponse, # 'partial' for long responses
-                         "#r#"      : self.doResponse}
+                         "stats"    : self.multiServerCmd}
         # commands executed based on contents of #Q# message
         self.qCommands = {"players" : self.getPlayers,
                           "who"     : self.getPlayers,
@@ -453,22 +309,6 @@ class DeathBotProtocol(irc.IRCClient):
                           "cstats"  : self.getStats, # cumulative day stats (6-hourly)
                           "dstats"  : self.getStats, # scheduled daily stats
                           "fstats"  : self.getStats} # scheduled final stats
-
-        # callbacks to run when all slaves have responded
-        self.callBacks = {"players" : self.outPlayers,
-                          "who"     : self.outPlayers,
-                          "whereis" : self.outWhereIs,
-                          "asc"     : self.outAscStreak,
-                          "streak"  : self.outAscStreak,
-                          # TODO: timestamp these so we can report the very last one
-                          # For now, use the !asc/!streak callback as it's generic enough
-                          "lastasc" : self.outAscStreak,
-                          "lastgame": self.outAscStreak,
-                          "stats"   : self.outStats,
-                          "hstats"  : self.outStats,
-                          "cstats"  : self.outStats,
-                          "dstats"  : self.outStats,
-                          "fstats"  : self.outStats}
 
         # checkUsage outputs a message and returns false if input is bad
         # returns true if input is ok
@@ -509,40 +349,23 @@ class DeathBotProtocol(irc.IRCClient):
         self.looping_calls["trophy"].start(30)
         # Call it now to seed the trophy dict.
         self.checkScoreboard()
-        # Update local milestone summary to master every 5 minutes
-        self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
-        self.looping_calls["summary"].start(300)
-
-    def tweet(self, message):
-        if TWIT:
-            message = self.stripText(message)
-            try:
-                if TEST:
-                     message = "[TEST] " + message
-                     print("Not tweeting in test mode: " + message)
-                     return
-                self.twit.statuses.update(status=message)
-            except Exception as e:
-                print("Bad tweet: " + message)
-                print(e)
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason
-        if not SLAVE:
-            for c in CHANNELS: self.join(c)
-        if (self.nickname != NICK):
-            self.setNick(NICK)
+        for c in self.channels: self.join(c)
+        if (self.nickname != self.nickname):
+            self.setNick(self.nickname)
 
     def nickChanged(self, nn):
         # catch successful changing of nick from above and identify with nickserv
         self.msg("NickServ", "identify " + nn + " " + self.password)
 
     def logRotate(self):
-        if not IRCLOGS: return
+        if not self.conf.irc_logdir: return
         self.logday = time.strftime("%d")
-        for c in CHANNELS:
+        for c in self.channels:
             if self.chanLog[c]: self.chanLog[c].close()
-            self.chanLogName[c] = IRCLOGS + "/" + c + time.strftime("-%Y-%m-%d.log")
+            self.chanLogName[c] = self.conf.irc_logdir + "/" + c + time.strftime("-%Y-%m-%d.log")
             try: self.chanLog[c] = open(self.chanLogName[c],'a') # 'w' is probably fine here
             except: self.chanLog[c] = None
             if self.chanLog[c]: os.chmod(self.chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
@@ -566,31 +389,29 @@ class DeathBotProtocol(irc.IRCClient):
     # wrapper for "msg" that logs if msg dest is channel
     # Need to log our own actions separately as they don't trigger events
     def msgLog(self, replyto, message):
-        if replyto in CHANNELS:
+        if replyto in self.channels:
             self.log(replyto, "<" + self.nickname + "> " + message)
         self.msg(replyto, message)
 
     # Similar wrapper for describe
     def describeLog(self,replyto, message):
-        if replyto in CHANNELS:
+        if replyto in self.channels:
             self.log("* " + self.nickname + " " + message)
         self.describe(replyto, message)
 
     # Tournament announcements typically go to the channel
     # ...and to the channel log
     # ...and to twitter. announce() does this.
-    # spam flag allows more verbosity in some channels
+    # spam flag allows more verbosity in some self.channels
     def announce(self, message, spam = False):
-        if not TEST:
+        if not self.conf.test:
             # Only announce during tournament, or short grace period following
             nowtime = datetime.now()
-            game_on =  (nowtime > self.ttime["start"]) and (nowtime < (self.ttime["end"] + timedelta(days=GRACEDAYS)))
+            game_on =  (nowtime > self.ttime["start"]) and (nowtime < (self.ttime["end"] + timedelta(days=self.conf.grace_days)))
             if not game_on: return
-        chanlist = CHANNELS
+        chanlist = self.channels
         if spam:
-            chanlist = SPAMCHANNELS #only
-        else: # only tweet non spam
-            self.tweet(message)
+            chanlist = self.channels #only
         for c in chanlist:
             self.msgLog(c, message)
 
@@ -602,66 +423,6 @@ class DeathBotProtocol(irc.IRCClient):
             self.msg(replyto, message)
         else: #channel - prepend "Nick: " to message
             self.msgLog(replyto, sender + ": " + message)
-
-    # Query/Response handling
-    #Q#
-    def doQuery(self, sender, replyto, msgwords):
-        # called when slave gets queried by master.
-        # msgwords is [ #Q#, <query_id>, <orig_sender>, <command>, ... ]
-        if (sender in MASTERS) and (msgwords[3] in self.qCommands):
-            # sender is passed to master; msgwords[2] is passed tp sender
-            self.qCommands[msgwords[3]](sender,msgwords[2],msgwords[1],msgwords[3:])
-        else:
-            print("Bogus slave query from " + sender + ": " + " ".join(msgwords));
-
-    #R# / #P#
-    def doResponse(self, sender, replyto, msgwords):
-        # called when slave returns query response to master
-        # msgwords is [ #R#, <query_id>, [server-tag], command output, ...]
-        # for long resps ([ #P#, <query>, output ]) * n, finishing with #R# msg as above
-        # Assumes message fragments arrive in the same order as sent. Yeah, yeah I know...
-        if sender in self.slaves and msgwords[1] in self.queries:
-            self.queries[msgwords[1]]["resp"][sender] = self.queries[msgwords[1]]["resp"].get(sender,"") + " ".join(msgwords[2:])
-            if msgwords[0] == "#R#": self.queries[msgwords[1]]["finished"][sender] = True
-            if set(self.queries[msgwords[1]]["finished"].keys()) >= set(self.slaves.keys()):
-                #all slaves have responded
-                self.queries[msgwords[1]]["callback"](self.queries.pop(msgwords[1]))
-        else:
-            print("Bogus slave response from " + sender + ": " + " ".join(msgwords));
-
-    #S#
-    def checkMilestones(self, sender, replyto, msgwords):
-        numbers = { 1000000: "One million",
-                    5000000: "Five million",
-                   10000000: "Ten million",
-                   50000000: "50 million",
-                  100000000: "100 million",
-                  500000000: "500 million",
-                 1000000000: "One billion",
-                 5000000000: "Five billion" }
-        statnames = { "games"  : "games played",
-                      "ascend" : "ascended games",
-                      "points" : "nethack points scored",
-                      "turns"  : "turns played",
-                     "realtime": "days spent playing nethack"}
-        if sender not in self.slaves:
-            return
-        # if this is the first time the slave has contacted us since we restarted
-        # we don't want to announce anything, because we risk repeating ourselves
-        FirstContact = False
-        if self.summaries[sender]["games"] == 0:
-            FirstContact = True
-        self.summaries[sender] = json.loads(" ".join(msgwords[1:]))
-        for k in list(self.milestones.keys()):
-            t = 0
-            for s in self.summaries:
-                t += self.summaries[s][k]
-            if k == "realtime": t /= 86400 # days, not seconds
-            if not FirstContact:
-                for m in self.milestones[k]:
-                    if self.summary[k] and t >= m and self.summary[k] < m:
-                        self.announce("\x02TOURNAMENT MILESTONE:\x0f {0} {1}.".format(numbers.get(m,m), statnames.get(k,k)))
-            self.summary[k] = t
 
 
     # Hourly/daily/special stats
@@ -691,7 +452,7 @@ class DeathBotProtocol(irc.IRCClient):
         if replyto:
             chanlist = [replyto]
         else:
-            chanlist = SPAMCHANNELS
+            chanlist = self.channels
         if stats["games"] != 0:
             # mash the realtime value into d,h,m,s
             rt = int(stats["realtime"])
@@ -731,34 +492,31 @@ class DeathBotProtocol(irc.IRCClient):
         for delay in range (1,time):
             reactor.callLater(delay,self.announce,"{0}...".format(time-delay),True)
 
-#    def testCountdown(self, sender, replyto, msgwords):
-#        self.startCountdown(msgwords[1],int(msgwords[2]))
-
     def hourlyStats(self):
         nowtime = datetime.now()
         # special case handling for start/end
         # we are running at the top of the hour
         # so checking we are within 1 minute of start/end time is sufficient
         if abs(nowtime - self.ttime["start"]) < timedelta(minutes=1):
-            self.announce("###### TNNT {0} IS OPEN! ######".format(YEAR))
+            self.announce("###### TNNT {0} IS OPEN! ######".format(self.conf.year))
         elif abs(nowtime - self.ttime["end"]) < timedelta(minutes=1):
-            self.announce("###### TNNT {0} IS CLOSED! ######".format(YEAR))
-            self.multiServerCmd(NICK, NICK, ["fstats"])
+            self.announce("###### TNNT {0} IS CLOSED! ######".format(self.conf.year))
+            self.multiServerCmd(self.nickname, self.nickname, ["fstats"])
             return
         elif abs(nowtime + timedelta(hours=1) - self.ttime["start"]) < timedelta(minutes=1):
             reactor.callLater(3597, self.startCountdown,"start",3) # 3 seconds to the next hour
         elif abs(nowtime + timedelta(hours=1) - self.ttime["end"]) < timedelta(minutes=1):
             reactor.callLater(3597, self.startCountdown,"end",3) # 3 seconds to the next hour
         game_on =  (nowtime > self.ttime["start"]) and (nowtime < self.ttime["end"])
-        if TEST: game_on = True
+        if self.conf.test: game_on = True
         if not game_on: return
 
         if nowtime.hour == 0:
-            self.multiServerCmd(NICK, NICK, ["dstats"])
+            self.multiServerCmd(self.nickname, self.nickname, ["dstats"])
         elif nowtime.hour % 6 == 0:
-            self.multiServerCmd(NICK, NICK, ["cstats"])
+            self.multiServerCmd(self.nickname, self.nickname, ["cstats"])
         else:
-            self.multiServerCmd(NICK, NICK, ["hstats"])
+            self.multiServerCmd(self.nickname, self.nickname, ["hstats"])
 
     def startHourly(self):
         # this is scheduled to run at the first :00 after the bot starts
@@ -803,7 +561,7 @@ class DeathBotProtocol(irc.IRCClient):
     def listTrophies(self,trophies):
         tlist = []
         for t in trophies:
-            tlist += [config["trophies"][str(t)]["title"].encode('utf-8')]
+            tlist += [self.static_defs["trophies"][str(t)]["title"].encode('utf-8')]
         return self.listStuff(tlist)
 
     def listAchievements(self, achievements, maxCount):
@@ -811,20 +569,19 @@ class DeathBotProtocol(irc.IRCClient):
             return str(len(achievements)) + " new achievements"
         alist = []
         for a in achievements:
-            alist += [config["achievements"][str(a)]["title"].encode('utf-8')]
+            alist += [self.static_defs["achievements"][str(a)]["title"].encode('utf-8')]
         return self.listStuff(alist)
 
     def checkScoreboard(self):
-        if SLAVE: return
         # this chokes down the whole json file output by the scoreboard system,
         # Makes some comparisons,
         # and reports anything interesting that has changed.
         prevScoreboard = {}
         if self.scoreboard: prevScoreboard = self.scoreboard
         try:
-            self.scoreboard = json.load(open(SCOREBOARDJSON))
+            self.scoreboard = json.load(self.scoreboard_file.open())
         except:
-            print("Failed to load scoreboard from " + SCOREBOARDJSON)
+            print("Failed to load scoreboard from " + self.conf.scoreboard_file)
             self.scoreboard = prevScoreboard
             return
 
@@ -881,13 +638,13 @@ class DeathBotProtocol(irc.IRCClient):
         timeMsg = time.strftime("%F %H:%M:%S %Z. ")
         timeLeft = self.countDown()
         if timeLeft["countdown"] <= timedelta(0):
-            timeMsg += "The " + YEAR + " tournament is OVER!"
+            timeMsg += "The " + self.conf.year + " tournament is OVER!"
             self.respond(replyto, sender, timeMsg)
-            retur
+            return
         verbs = { "start" : "begins",
                   "end" : "closes"
                 }
-        timeMsg += YEAR + " Tournament " + verbs[timeLeft["event"]] + " in {days}d {hours:0>2}:{minutes:0>2}:{seconds:0>2}".format(**timeLeft)
+        timeMsg += self.conf.year + " Tournament " + verbs[timeLeft["event"]] + " in {days}d {hours:0>2}:{minutes:0>2}:{seconds:0>2}".format(**timeLeft)
         self.respond(replyto, sender, timeMsg)
 
     def doSource(self, sender, replyto, msgwords):
@@ -904,7 +661,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def doScore(self, sender, replyto, msgwords):
         if len(msgwords) > 2:
-            self.respond(replyto, sender, TRIGGER + msgwords[0]
+            self.respond(replyto, sender, self.conf.trigger + msgwords[0]
                          + " - get tournament score and ranking of yourself or another player")
             return
         if len(msgwords) == 2:
@@ -930,7 +687,7 @@ class DeathBotProtocol(irc.IRCClient):
         # msgwords[1] is the desired tag, msgwords[the rest] is the clan name as it appears in the scoreboard
         # case is ignored for searching, but correct case is stored in the table for faster lookup later.
         if len(msgwords) < 3:
-            self.respond(replyto, sender, TRIGGER + msgwords[0] + " <tag> <clan name> - assigns a shorthand tag to a clan for use with " + TRIGGER + "clanscore")
+            self.respond(replyto, sender, self.conf.trigger + msgwords[0] + " <tag> <clan name> - assigns a shorthand tag to a clan for use with " + self.conf.trigger + "clanscore")
             return
         if msgwords[1].lower() in [clan["name"].lower() for clan in self.scoreboard["clans"]["all"]]:
             self.respond(replyto, sender, msgwords[1] + " is already the name of a clan.") # people will be smartarses
@@ -981,7 +738,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
-            self.respond(replyto, sender, TRIGGER + "tell <recipient> <message> (leave a message for someone)")
+            self.respond(replyto, sender, self.conf.trigger + "tell <recipient> <message> (leave a message for someone)")
             return
         willDo = [ "Will do, {0}!",
                    "I'm on it, {0}.",
@@ -1072,7 +829,7 @@ class DeathBotProtocol(irc.IRCClient):
         message = "#Q# " + " ".join([q,sender] + msgwords)
 
         for sl in list(self.slaves.keys()):
-            if TEST: print("forwardQuery: " + sl + " " + message)
+            if self.conf.test: print("forwardQuery: " + sl + " " + message)
             self.msg(sl,message)
 
     # Multi-server command entry point (forwards query to slaves)
@@ -1132,7 +889,7 @@ class DeathBotProtocol(irc.IRCClient):
                     plrvar += inpfile.split("/")[-1].split(":")[0] + " "
         if len(plrvar) == 0:
             plrvar = "No current players"
-        response = "#R# " + query + " " + self.displaytag(SERVERTAG) + " " + plrvar
+        response = "#R# " + query + " " + self.displaytag(self.conf.server_tag) + " " + plrvar
         self.msg(master, response)
 
     # !players callback. Actually print the output.
@@ -1142,7 +899,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def usageWhereIs(self, sender, replyto, msgwords):
         if (len(msgwords) != 2):
-            self.respond(replyto, sender, TRIGGER + msgwords[0] + " <player> - finds a player in the dungeon." + replytag)
+            self.respond(replyto, sender, self.conf.trigger + msgwords[0] + " <player> - finds a player in the dungeon." + replytag)
             return False
         return True
 
@@ -1161,7 +918,7 @@ class DeathBotProtocol(irc.IRCClient):
                                     wirec = parse_xlogfile_line(open(wipath, "r").read().strip(),":")
 
                                     self.msg(master, "#R# " + query
-                                             + " " + self.displaytag(SERVERTAG) + " " + plr
+                                             + " " + self.displaytag(self.conf.server_tag) + " " + plr
                                              + " : ({role} {race} {gender} {align}) T:{turns} ".format(**wirec)
                                              + self.dungeons[wirec["dnum"]]
                                              + " level: " + str(wirec["depth"])
@@ -1169,11 +926,11 @@ class DeathBotProtocol(irc.IRCClient):
                                     return
 
                         self.msg(master, "#R# " + query + " "
-                                                + self.displaytag(SERVERTAG)
+                                                + self.displaytag(self.conf.server_tag)
                                                 + " " + plr + " "
                                                 + ": No details available")
                         return
-        self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG)
+        self.msg(master, "#R# " + query + " " + self.displaytag(self.conf.server_tag)
                                         + " " + msgwords[1]
                                         + " is not currently playing on this server.")
 
@@ -1204,32 +961,32 @@ class DeathBotProtocol(irc.IRCClient):
         stats = ""
         totasc = 0
         if not plr in self.asc:
-            repl = self.displaytag(SERVERTAG) + " No ascensions for " + PLR
+            repl = self.displaytag(self.conf.server_tag) + " No ascensions for " + PLR
             if plr in self.allgames:
                 repl += " in " + str(self.allgames[plr]) + " games"
             repl += "."
             self.msg(master,"#R# " + query + " " + repl)
             return
-        for role in config["nethack"]["roles"]:
+        for role in self.static_defs["nethack"]["roles"]:
              role = role.title() # capitalise the first letter
              if role in self.asc[plr]:
                 totasc += self.asc[plr][role]
                 stats += " " + str(self.asc[plr][role]) + "x" + role
         stats += ", "
-        for race in config["nethack"]["races"]:
+        for race in self.static_defs["nethack"]["races"]:
             race = race.title()
             if race in self.asc[plr]:
                 stats += " " + str(self.asc[plr][race]) + "x" + race
         stats += ", "
-        for alig in config["nethack"]["aligns"]:
+        for alig in self.static_defs["nethack"]["aligns"]:
             if alig in self.asc[plr]:
                 stats += " " + str(self.asc[plr][alig]) + "x" + alig
         stats += ", "
-        for gend in config["nethack"]["genders"]:
+        for gend in self.static_defs["nethack"]["genders"]:
             if gend in self.asc[plr]:
                 stats += " " + str(self.asc[plr][gend]) + "x" + gend
         stats += "."
-        self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG)
+        self.msg(master, "#R# " + query + " " + self.displaytag(self.conf.server_tag)
                          + " " + PLR
                          + " has ascended "
                          + str(totasc) + " times in "
@@ -1272,7 +1029,7 @@ class DeathBotProtocol(irc.IRCClient):
             reply += "No streaks for " + PLR + "."
             self.msg(master,reply)
             return
-        reply += self.displaytag(SERVERTAG) + " " + PLR
+        reply += self.displaytag(self.conf.server_tag) + " " + PLR
         reply += " Max: " + str(llength) + " (" + self.streakDate(lstart) \
                           + " - " + self.streakDate(lend) + ")"
         if clength > 0:
@@ -1293,10 +1050,10 @@ class DeathBotProtocol(irc.IRCClient):
                 self.msg(master, "#R# " + query +
                                  " No last game for " + msgwords[1] + ".")
                 return
-            self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG) + " " + dl)
+            self.msg(master, "#R# " + query + " " + self.displaytag(self.conf.server_tag) + " " + dl)
             return
         # no player
-        self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG) + " " + self.lastgame)
+        self.msg(master, "#R# " + query + " " + self.displaytag(self.conf.server_tag) + " " + self.lastgame)
 
     def getLastAsc(self, master, sender, query, msgwords):
         if (len(msgwords) >= 2):  #player specified
@@ -1306,18 +1063,17 @@ class DeathBotProtocol(irc.IRCClient):
                 self.msg(master, "#R# " + query +
                                  " No last ascension for " + msgwords[1] + ".")
                 return
-            self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG) + " " + dl)
+            self.msg(master, "#R# " + query + " " + self.displaytag(self.conf.server_tag) + " " + dl)
             return
-        self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG) + " " + self.lastasc)
+        self.msg(master, "#R# " + query + " " + self.displaytag(self.conf.server_tag) + " " + self.lastasc)
 
     # Listen to the chatter
     def privmsg(self, sender, dest, message):
         sender = sender.partition("!")[0]
-        if SLAVE and sender not in MASTERS: return
-        if (dest in CHANNELS): #public message
+        if (dest in self.channels): #public message
             self.log(dest, "<"+sender+"> " + message)
             replyto = dest
-            if (sender == DCBRIDGE and message[0] == '<'):
+            if (sender == self.bridge_bot and message[0] == '<'):
                 msgparts = message[1:].split('> ')
                 sender = msgparts[0]
                 message = "> ".join(msgparts[1:]) # in case there's more "> " in the message
@@ -1326,8 +1082,8 @@ class DeathBotProtocol(irc.IRCClient):
         # Message checks next.
         self.checkMessages(sender, dest)
         # ignore other channel noise unless !command
-        if (message[0] != TRIGGER):
-            if (dest in CHANNELS): return
+        if (message[0] != self.conf.trigger):
+            if (dest in self.channels): return
         else: # pop the '!'
             message = message[1:]
         msgwords = message.strip().split(" ")
@@ -1337,7 +1093,7 @@ class DeathBotProtocol(irc.IRCClient):
         if self.commands.get(msgwords[0].lower(), False):
             self.commands[msgwords[0].lower()](sender, replyto, msgwords)
             return
-        if dest not in CHANNELS and sender in self.slaves: # game announcement from slave
+        if dest not in self.channels and sender in self.slaves: # game announcement from slave
             spam = False
             if msgwords[0] == "SPAM:":
                 msgwords = msgwords[1:]
@@ -1346,15 +1102,15 @@ class DeathBotProtocol(irc.IRCClient):
 
     #other events for logging
     def action(self, doer, dest, message):
-        if (dest in CHANNELS):
+        if (dest in self.channels):
             doer = doer.split('!', 1)[0]
             self.log(dest, "* " + doer + " " + message)
 
     def userRenamed(self, oldName, newName):
-        self.log(CHANNELS[0], "-!- " + oldName + " is now known as " + newName) # fix channel
+        self.log(self.channels[0], "-!- " + oldName + " is now known as " + newName) # fix channel
 
     def noticed(self, user, channel, message):
-        if (channel in CHANNELS):
+        if (channel in self.channels):
             user = user.split('!')[0]
             self.log(channel, "-" + user + ":" + channel + "- " + message)
 
@@ -1380,7 +1136,7 @@ class DeathBotProtocol(irc.IRCClient):
     def userQuit(self, user, quitMsg):
         #(user,details) = user.split('!')
         #self.log("-!- " + user + " [" + details + "] has quit [" + quitMsg + "]")
-        self.log(CHANNELS[0], "-!- " + user + " has quit [" + quitMsg + "]")
+        self.log(self.channels[0], "-!- " + user + " has quit [" + quitMsg + "]")
 
     def userKicked(self, kickee, channel, kicker, message):
         kicker = kicker.split('!')[0]
@@ -1435,7 +1191,7 @@ class DeathBotProtocol(irc.IRCClient):
         # Need to figure out the dump path before messing with the name below
         dumpfile = (self.dump_file_prefix + game["dumpfmt"]).format(**game)
         dumpurl = "(sorry, no dump exists for {name})".format(**game)
-        if TEST or os.path.exists(dumpfile): # dump files may not exist on test system
+        if self.conf.test or os.path.exists(dumpfile): # dump files may not exist on test system
             # quote only the game-specific part, not the prefix.
             # Otherwise it quotes the : in https://
             # assume the rest of the url prefix is safe.
@@ -1563,12 +1319,6 @@ class DeathBotProtocol(irc.IRCClient):
         for call in self.looping_calls.values():
             call.stop()
 
-    def updateSummary(self):
-        # send most up-to-date full stats to master for milestone tracking
-        # called every time a game ends, and on a timer in case master restarted.
-        for master in MASTERS:
-            self.msg(master, "#S# " + json.dumps({k: self.stats["full"][k] for k in ('games', 'ascend', 'points', 'turns', 'realtime')}))
-
     def logReport(self, filepath):
         with filepath.open("r") as handle:
             handle.seek(self.logs_seek[filepath])
@@ -1579,19 +1329,15 @@ class DeathBotProtocol(irc.IRCClient):
                 game["dumpfmt"] = self.logs[filepath][3]
                 spam = self.logs[filepath][4]
                 for line in self.logs[filepath][0](game):
-                    line = self.displaytag(SERVERTAG) + " " + line
-                    if SLAVE:
-                        if spam:
-                            line = "SPAM: " + line
-                        for master in MASTERS:
-                            self.msg(master, line)
-                    else:
-                        self.announce(line,spam)
-                self.updateSummary()
+                    line = self.displaytag(self.conf.server_tag) + " " + line
+                    self.announce(line,spam)
 
             self.logs_seek[filepath] = handle.tell()
 
 class DeathBotFactory(ReconnectingClientFactory):
+    def __init__(self, conf):
+        self.conf = conf
+
     def startedConnecting(self, connector):
         print('Started to connect.')
 
@@ -1599,7 +1345,7 @@ class DeathBotFactory(ReconnectingClientFactory):
         print('Connected.')
         print('Resetting reconnection delay')
         self.resetDelay()
-        p = DeathBotProtocol()
+        p = DeathBotProtocol(self.conf)
         p.factory = self
         return p
 
@@ -1613,14 +1359,9 @@ class DeathBotFactory(ReconnectingClientFactory):
                                                          reason)
 
 if __name__ == '__main__':
-    # initialize logging
-    log.startLogging(DailyLogFile.fromFullPath(LOGBASE))
-
-    # create factory protocol and application
-    f = DeathBotFactory()
-
-    # connect factory to this host and port
-    reactor.connectSSL(HOST, PORT, f, ssl.ClientContextFactory())
-
-    # run bot
+    conf = CroesusConfig()
+    conf.fetch()
+    log.startLogging(DailyLogFile.fromFullPath(conf.logfile))
+    factory = DeathBotFactory(conf)
+    reactor.connectSSL(conf.server, conf.port, factory, ssl.ClientContextFactory())
     reactor.run()

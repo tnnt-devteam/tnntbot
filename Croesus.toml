@@ -1,0 +1,19 @@
+[irc]
+server = "irc.libera.chat"
+channels = [ "#tnnt-bottest" ]
+nick = "CroesusTestAoei"
+realname = "TNNT Reporting bot"
+admins = [ "aoei", "K2", "Tangles" ]
+
+[files]
+botroot = "/home/aoei/git/tnnt/botlive"
+nhroot = "/home/aoei/git/tnnt/nhlive"
+
+[tnnt]
+current_year = 2021
+server_tag = "aoei-local-test"
+grace_days = 5
+
+[misc]
+remotes = []
+test = true
