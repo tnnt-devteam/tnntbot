@@ -2,7 +2,7 @@
 *.pid
 *.db
 *.pyc
-botconf.py
+tnntbotconf.py
 pw
 *.json
 *.swp

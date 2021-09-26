@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
 """
 
 *** THIS IS THE TNNT BOT ***
@@ -43,6 +44,7 @@ from twisted.python import filepath, log
 from twisted.python.logfile import DailyLogFile
 from twisted.application import internet, service
 from datetime import datetime, timedelta
+import site     # to help find botconf
 import base64
 import time     # for !time
 import ast      # for conduct/achievement bitfields - not really used
@@ -57,46 +59,47 @@ import json     # for tournament scoreboard things
 
 # command trigger - this should be in botconf - next time.
 TRIGGER = '$'
-from tnnt.botconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
-from tnnt.botconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
-from tnnt.botconf import SERVERTAG
+site.addsitedir('.')
+from tnntbotconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
+from tnntbotconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
+from tnntbotconf import SERVERTAG
 try:
-    from tnnt.botconf import SPAMCHANNELS
+    from tnntbotconf import SPAMCHANNELS
 except:
     SPAMCHANNELS = CHANNELS
-try: from tnnt.botconf import DCBRIDGE
+try: from tnntbotconf import DCBRIDGE
 except:
     DCBRIDGE = None
 try:
-    from tnnt.botconf import TEST
+    from tnntbotconf import TEST
 except:
     TEST = False
 try:
-    from tnnt.botconf import GRACEDAYS
+    from tnntbotconf import GRACEDAYS
 except:
     GRACEDAYS = 5
 try:
-    from tnnt.botconf import REMOTES
+    from tnntbotconf import REMOTES
 except:
     SLAVE = True
     REMOTES = {}
 try:
-    from tnnt.botconf import MASTERS
+    from tnntbotconf import MASTERS
 except:
     SLAVE = False
     MASTERS = []
 try:
-    from tnnt.botconf import LOGBASE, IRCLOGS
+    from tnntbotconf import LOGBASE, IRCLOGS
 except:
-    LOGBASE = None
-    IRCLOGS = None
+    LOGBASE = BOTDIR + "/tnntbot.log"
+    IRCLOGS = "/var/www/hardfought.org/tnnt/irclog/"
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
 TWIT = False
 if not SLAVE:
     try:
-        from tnnt.botconf import CONFIGJSON
+        from tnntbotconf import CONFIGJSON
     except:
         CONFIGJSON = "config.json" # assume current directory
 
@@ -107,7 +110,7 @@ if not SLAVE:
 
     # scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
     try:
-        from tnnt.botconf import SCOREBOARDJSON
+        from tnntbotconf import SCOREBOARDJSON
     except:
         SCOREBOARDJSON = "scoreboard.json" # assume current directory
 
@@ -116,7 +119,7 @@ if not SLAVE:
     # set TWIT to false to prevent tweeting
     TWIT = True
     try:
-        from tnnt.botconf import TWITAUTH
+        from tnntbotconf import TWITAUTH
     except:
         print("no TWITAUTH - twitter disabled")
         TWIT = False
@@ -406,9 +409,16 @@ class DeathBotProtocol(irc.IRCClient):
         self.allgames = {}
 
         # for !tell
-        self.tellbuf = shelve.open(BOTDIR + "/tellmsg.db", writeback=True)
+        try:
+            self.tellbuf = shelve.open(BOTDIR + "/tellmsg.db", writeback=True)
+        except:
+            self.tellbuf = shelve.open(BOTDIR + "/tellmsg", writeback=True, protocol=2)
+
         # for !setmintc
-        self.plr_tc = shelve.open(BOTDIR + "/plrtc.db", writeback=True)
+        try:
+            self.plr_tc = shelve.open(BOTDIR + "/plrtc.db", writeback=True)
+        except:
+            self.plr_tc = shelve.open(BOTDIR + "/plrtc", writeback=True, protocol=2)
 
         # Commands must be lowercase here.
         self.commands = {"ping"     : self.doPing,
