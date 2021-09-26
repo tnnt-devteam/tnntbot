@@ -919,7 +919,7 @@ class DeathBotProtocol(irc.IRCClient):
         plr = PLR.lower()
         # case insensitive search
         player = None
-        for p in list(self.scoreboard["players"]["all"].keys()):
+        for p in list(self.scoreboard["players"].keys()):
             if plr == p.lower():
                 player = p
                 break
