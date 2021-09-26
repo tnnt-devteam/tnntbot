@@ -61,7 +61,7 @@ import json     # for tournament scoreboard things
 TRIGGER = '$'
 site.addsitedir('.')
 from tnntbotconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
-from tnntbotconf import PWFILE, FILEROOT, WEBROOT, ADMIN, YEAR
+from tnntbotconf import PWFILE, FILEROOT, WEBROOT, LOGROOT, ADMIN, YEAR
 from tnntbotconf import SERVERTAG
 try:
     from tnntbotconf import SPAMCHANNELS
@@ -92,7 +92,7 @@ try:
     from tnntbotconf import LOGBASE, IRCLOGS
 except:
     LOGBASE = BOTDIR + "/tnntbot.log"
-    IRCLOGS = "/var/www/hardfought.org/tnnt/irclog/"
+    IRCLOGS = LOGROOT
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
@@ -413,12 +413,6 @@ class DeathBotProtocol(irc.IRCClient):
             self.tellbuf = shelve.open(BOTDIR + "/tellmsg.db", writeback=True)
         except:
             self.tellbuf = shelve.open(BOTDIR + "/tellmsg", writeback=True, protocol=2)
-
-        # for !setmintc
-        try:
-            self.plr_tc = shelve.open(BOTDIR + "/plrtc.db", writeback=True)
-        except:
-            self.plr_tc = shelve.open(BOTDIR + "/plrtc", writeback=True, protocol=2)
 
         # Commands must be lowercase here.
         self.commands = {"ping"     : self.doPing,
