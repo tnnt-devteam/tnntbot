@@ -226,9 +226,10 @@ class DeathBotProtocol(irc.IRCClient):
     dump_file_prefix = FILEROOT + "dgldir/userdata/{name[0]}/{name}/"
 
     # tnnt runs on UTC
-    os.environ["TZ"] = ":UTC"
-    ttime = { "start": datetime(int(YEAR),11,0o1,00,00,00),
-              "end"  : datetime(int(YEAR),12,0o1,00,00,00)
+    os.environ["TZ"] = "UTC"
+    time.tzset()
+    ttime = { "start": datetime(int(YEAR),11,1,0,0,0),
+              "end"  : datetime(int(YEAR),12,1,0,0,0)
             }
 
     chanLog = {}
