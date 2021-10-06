@@ -634,6 +634,19 @@ class DeathBotProtocol(irc.IRCClient):
         else:
             print("Bogus slave response from " + sender + ": " + " ".join(msgwords));
 
+    # As above, but timed out receiving one or more responses
+    def doQueryTimeout(self, query):
+        # This gets called regardless, so only process if query still exists
+        if query not in self.queries: return
+
+        noResp = []
+        for i in self.slaves.keys():
+            if not self.queries[query]["finished"].get(i,False):
+                noResp.append(i)
+        if noResp:
+            print("WARNING: Query " + query + ": No response from " + self.listStuff(noResp))
+        self.queries[query]["callback"](self.queries.pop(query))
+
     #S#
     def checkMilestones(self, sender, replyto, msgwords):
         numbers = { 1000000: "One million",
@@ -1064,9 +1077,11 @@ class DeathBotProtocol(irc.IRCClient):
         # Store a query reference locally, indexed by a unique identifier
         # Store a callback function for when everyone responds to the query.
         # forward the query tagged with the ID to the slaves.
+        # Queue up a timeout callback to handle slave(s) not responding
         # [elsewhere]
         # record query responses, and call callback when all received (or timeout)
         # This all becomes easier if we just treat ourself (master) as one of the slaves
+        TIMEOUT = 5 # move this to config later
         q = self.newQueryId()
         self.queries[q] = {}
         self.queries[q]["callback"] = callback
@@ -1079,6 +1094,7 @@ class DeathBotProtocol(irc.IRCClient):
         for sl in list(self.slaves.keys()):
             if TEST: print("forwardQuery: " + sl + " " + message)
             self.msg(sl,message)
+        reactor.callLater(TIMEOUT, self.doQueryTimeout, q)
 
     # Multi-server command entry point (forwards query to slaves)
     def multiServerCmd(self, sender, replyto, msgwords):
