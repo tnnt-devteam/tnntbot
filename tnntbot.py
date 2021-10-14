@@ -237,6 +237,7 @@ class DeathBotProtocol(irc.IRCClient):
     activity = {}
     if not SLAVE:
         scoresURL = "https://www.hardfought.org/tnnt/trophies.html or https://www.hardfought.org/tnnt/clans.html"
+        ttyrecURL = WEBROOT + "nethack/ttyrecs"
         rceditURL = WEBROOT + "nethack/rcedit"
         helpURL = sourceURL + "/blob/master/botuse.txt"
         logday = time.strftime("%d")
@@ -424,6 +425,7 @@ class DeathBotProtocol(irc.IRCClient):
                          "lastasc"  : self.multiServerCmd,
                          "scores"   : self.doScoreboard,
                          "sb"       : self.doScoreboard,
+                         "ttyrec"   : self.doTtyrec,
                          "rcedit"   : self.doRCedit,
                          "commands" : self.doCommands,
                          "help"     : self.doHelp,
@@ -914,6 +916,9 @@ class DeathBotProtocol(irc.IRCClient):
     def doScoreboard(self, sender, replyto, msgwords):
         self.respond(replyto, sender, self.scoresURL )
 
+    def doTtyrec(self, sender, replyto, msgwords):
+        self.respond(replyto, sender, self.ttyrecURL )
+
     def doRCedit(self, sender, replyto, msgwords):
         self.respond(replyto, sender, self.rceditURL )
 
@@ -995,7 +1000,7 @@ class DeathBotProtocol(irc.IRCClient):
             self.respond(replyto, sender, "Can't find clan {0}".format(tryClan))
 
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are help ping time tell source lastgame lastasc asc streak rcedit scores sb score clanscore clantag whereis players who commands" )
+        self.respond(replyto, sender, "available commands are: help ping time tell source lastgame lastasc asc streak rcedit scores sb score ttyrec clanscore clantag whereis players who commands" )
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
