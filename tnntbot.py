@@ -236,7 +236,7 @@ class DeathBotProtocol(irc.IRCClient):
     chanLogName = {}
     activity = {}
     if not SLAVE:
-        scoresURL = "https://www.hardfought.org/tnnt/trophies.html or https://www.hardfought.org/tnnt/clans.html"
+        scoresURL = "https://tnnt.org/leaderboards or https://tnnt.org/trophies"
         ttyrecURL = WEBROOT + "nethack/ttyrecs"
         rceditURL = WEBROOT + "nethack/rcedit"
         helpURL = sourceURL + "/blob/master/botuse.txt"
