@@ -903,7 +903,7 @@ class DeathBotProtocol(irc.IRCClient):
         if timeLeft["countdown"] <= timedelta(0):
             timeMsg += "The " + YEAR + " tournament is OVER!"
             self.respond(replyto, sender, timeMsg)
-            retur
+            return
         verbs = { "start" : "begins",
                   "end" : "closes"
                 }
