@@ -287,7 +287,8 @@ class DeathBotProtocol(irc.IRCClient):
 
     dungeons = ["The Dungeons of Doom", "Gehennom", "The Gnomish Mines",
                 "The Quest", "Sokoban", "Fort Ludios", "DevTeam Office",
-                "Deathmatch Arena", "Vlad's Tower", "The Elemental Planes"]
+                "Deathmatch Arena", "robotfindskitten", "Vlad's Tower",
+                "The Elemental Planes"]
 
     looping_calls = None
     commands = {}
