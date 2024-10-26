@@ -22,7 +22,7 @@ PWFILE = BOTDIR + "/pw"
 # file containing OAuth info for twitter.
 # see http://mike.verdone.ca/twitter/ fir details
 # leave this out to disable twitter
-TWITAUTH = BOTDIR + "/.twitter_oauth"
+#TWITAUTH = BOTDIR + "/.twitter_oauth"
 
 # file/web paths for dumplogs and ttyrecs.
 # subfolders are still hardcoded in the main bot.

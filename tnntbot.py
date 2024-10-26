@@ -89,14 +89,15 @@ except:
     SLAVE = False
     MASTERS = []
 try:
-    from tnntbotconf import LOGBASE, IRCLOGS
+    #from tnntbotconf import LOGBASE, IRCLOGS
+    from tnntbotconf import IRCLOGS
 except:
-    LOGBASE = BOTDIR + "/tnntbot.log"
+    #LOGBASE = BOTDIR + "/tnntbot.log"
     IRCLOGS = LOGROOT
 
 # config.json is where all the tournament trophies, achievements, other stuff are defined.
 # it's mainly used for driving the official scoreboard but we use it here too.
-TWIT = False
+#TWIT = False
 if not SLAVE:
     try:
         from tnntbotconf import CONFIGJSON
@@ -117,17 +118,17 @@ if not SLAVE:
     # twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
     # pip install twitter
     # set TWIT to false to prevent tweeting
-    TWIT = True
-    try:
-        from tnntbotconf import TWITAUTH
-    except:
-        print("no TWITAUTH - twitter disabled")
-        TWIT = False
-    try:
-        from twitter import Twitter, OAuth
-    except:
-        print("Unable to import from twitter module")
-        TWIT = False
+    #TWIT = True
+    #try:
+    #    from tnntbotconf import TWITAUTH
+    #except:
+    #    print("no TWITAUTH - twitter disabled")
+    #    TWIT = False
+    #try:
+    #    from twitter import Twitter, OAuth
+    #except:
+    #    print("Unable to import from twitter module")
+    #    TWIT = False
 
 CLANTAGJSON = BOTDIR + "/clantag.json"
 
@@ -208,14 +209,14 @@ class DeathBotProtocol(irc.IRCClient):
         password = open(PWFILE, "r").read().strip()
     except:
         password = "NotTHEPassword"
-    if TWIT:
-       try:
-           gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
-           twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
-       except Exception as e:
-           print("Failed to auth to twitter")
-           print(e)
-           TWIT = False
+    #if TWIT:
+    #   try:
+    #       gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
+    #       twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
+    #   except Exception as e:
+    #       print("Failed to auth to twitter")
+    #       print(e)
+    #       TWIT = False
 
 
     sourceURL = "https://github.com/tnnt-devteam/tnntbot"
@@ -521,18 +522,18 @@ class DeathBotProtocol(irc.IRCClient):
         self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
         self.looping_calls["summary"].start(300)
 
-    def tweet(self, message):
-        if TWIT:
-            message = self.stripText(message)
-            try:
-                if TEST:
-                     message = "[TEST] " + message
-                     print("Not tweeting in test mode: " + message)
-                     return
-                self.twit.statuses.update(status=message)
-            except Exception as e:
-                print("Bad tweet: " + message)
-                print(e)
+    #def tweet(self, message):
+    #    if TWIT:
+    #        message = self.stripText(message)
+    #        try:
+    #            if TEST:
+    #                 message = "[TEST] " + message
+    #                 print("Not tweeting in test mode: " + message)
+    #                 return
+    #            self.twit.statuses.update(status=message)
+    #        except Exception as e:
+    #            print("Bad tweet: " + message)
+    #            print(e)
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason
@@ -1642,7 +1643,7 @@ class DeathBotFactory(ReconnectingClientFactory):
 
 if __name__ == '__main__':
     # initialize logging
-    log.startLogging(DailyLogFile.fromFullPath(LOGBASE))
+    #log.startLogging(DailyLogFile.fromFullPath(LOGBASE))
 
     # create factory protocol and application
     f = DeathBotFactory()
