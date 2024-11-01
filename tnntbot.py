@@ -598,8 +598,8 @@ class DeathBotProtocol(irc.IRCClient):
         chanlist = CHANNELS
         if spam:
             chanlist = SPAMCHANNELS #only
-        else: # only tweet non spam
-            self.tweet(message)
+        #else: # only tweet non spam
+            #self.tweet(message)
         for c in chanlist:
             self.msgLog(c, message)
 
