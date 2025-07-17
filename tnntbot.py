@@ -104,21 +104,6 @@ if not SLAVE:
     NETHACK_ALIGNS = ["Cha", "Law", "Neu"]
     NETHACK_GENDERS = ["Mal", "Fem"]
 
-    # twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
-    # pip install twitter
-    # set TWIT to false to prevent tweeting
-    #TWIT = True
-    #try:
-    #    from tnntbotconf import TWITAUTH
-    #except:
-    #    print("no TWITAUTH - twitter disabled")
-    #    TWIT = False
-    #try:
-    #    from twitter import Twitter, OAuth
-    #except:
-    #    print("Unable to import from twitter module")
-    #    TWIT = False
-
 CLANTAGJSON = BOTDIR + "/clantag.json"
 
 # Rate limiting constants
@@ -260,15 +245,6 @@ class DeathBotProtocol(irc.IRCClient):
     except (IOError, OSError) as e:
         print(f"Warning: Could not read password file {PWFILE}: {e}")
         password = "NotTHEPassword"
-    #if TWIT:
-    #   try:
-    #       gibberish_that_makes_twitter_work = open(TWITAUTH,"r").read().strip().split("\n")
-    #       twit = Twitter(auth=OAuth(*gibberish_that_makes_twitter_work))
-    #   except Exception as e:
-    #       print("Failed to auth to twitter")
-    #       print(e)
-    #       TWIT = False
-
 
     sourceURL = "https://github.com/tnnt-devteam/tnntbot"
     versionName = "tnntbot.py"
@@ -639,18 +615,6 @@ class DeathBotProtocol(irc.IRCClient):
         self._initializeLogReading()
         self._startMonitoringTasks()
 
-    #def tweet(self, message):
-    #    if TWIT:
-    #        message = self.stripText(message)
-    #        try:
-    #            if TEST:
-    #                 message = "[TEST] " + message
-    #                 print("Not tweeting in test mode: " + message)
-    #                 return
-    #            self.twit.statuses.update(status=message)
-    #        except Exception as e:
-    #            print("Bad tweet: " + message)
-    #            print(e)
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason
@@ -707,7 +671,6 @@ class DeathBotProtocol(irc.IRCClient):
 
     # Tournament announcements typically go to the channel
     # ...and to the channel log
-    # ...and to twitter. announce() does this.
     # spam flag allows more verbosity in some channels
     def announce(self, message, spam = False):
         if not TEST:
@@ -718,8 +681,6 @@ class DeathBotProtocol(irc.IRCClient):
         chanlist = CHANNELS
         if spam:
             chanlist = SPAMCHANNELS #only
-        #else: # only tweet non spam
-            #self.tweet(message)
         for c in chanlist:
             self.msgLog(c, message)
 
