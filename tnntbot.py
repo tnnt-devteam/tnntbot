@@ -55,6 +55,7 @@ import shelve   # for persistent $tell messages
 import random   # for $rng and friends
 import glob     # for matching in $whereis
 import json     # for tournament scoreboard things
+import resource  # for memory usage in status command
 
 # command trigger - this should be in tnntbotconf - next time.
 TRIGGER = '$'
@@ -256,6 +257,7 @@ class DeathBotProtocol(irc.IRCClient):
     sourceURL = "https://github.com/tnnt-devteam/tnntbot"
     versionName = "tnntbot.py"
     versionNum = "0.1"
+    # bot_start_time will be set in signedOn() for accurate uptime tracking
 
     dump_url_prefix = WEBROOT + "userdata/{name[0]}/{name}/"
     dump_file_prefix = FILEROOT + "dgldir/userdata/{name[0]}/{name}/"
@@ -375,6 +377,9 @@ class DeathBotProtocol(irc.IRCClient):
                 self.join(c)
         random.seed()
 
+        # Track bot start time for uptime calculation
+        self.starttime = time.time()
+
         self.logs = {}
         # boolean for whether announcements from the log are 'spam', after dumpfmt
         # true for livelogs, false for xlogfiles
@@ -476,6 +481,7 @@ class DeathBotProtocol(irc.IRCClient):
                          "score"    : self.doScore,
                          "clanscore": self.doClanScore,
                          "clantag"  : self.doClanTag,
+                         "status"   : self.doStatus,
                          "players"  : self.multiServerCmd,
                          "who"      : self.multiServerCmd,
                          "asc"      : self.multiServerCmd,
@@ -1011,7 +1017,7 @@ class DeathBotProtocol(irc.IRCClient):
             msg_parts.append("{days}d {hours:02d}:{minutes:02d} {prep}".format(**cd))
 
         statmsg = "".join(msg_parts)
-        
+
         if p != "full":
             for c in chanlist:
                 self.msgLog(c, statmsg)
@@ -1130,7 +1136,64 @@ class DeathBotProtocol(irc.IRCClient):
         self.respond(replyto, sender, "Check the tournament clan rankings at: https://tnnt.org/clans")
 
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are: help ping time tell source lastgame lastasc asc streak rcedit scores sb score ttyrec clanscore clantag whereis players who commands" )
+        self.respond(replyto, sender, "available commands are: help ping time tell source lastgame lastasc asc streak rcedit scores sb score ttyrec clanscore clantag whereis players who commands status" )
+
+    def doStatus(self, sender, replyto, msgwords):
+        if sender not in self.admin:
+            self.respond(replyto, sender, "Admin access required.")
+            return
+
+        # Get memory usage of current process
+        try:
+            import resource
+            mem_usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # On Linux, ru_maxrss is in KB; on macOS it's in bytes
+            if mem_usage > 1048576:  # Likely macOS (bytes)
+                mem_mb = mem_usage / 1048576
+            else:  # Likely Linux (KB)
+                mem_mb = mem_usage / 1024
+        except ImportError:
+            mem_mb = "N/A"
+
+        # Calculate uptime
+        uptime_seconds = int(time.time() - self.starttime)
+        uptime_days = uptime_seconds // 86400
+        uptime_hours = (uptime_seconds % 86400) // 3600
+        uptime_mins = (uptime_seconds % 3600) // 60
+
+        # Count active file monitors (match beholder's specific counting)
+        monitor_count = 0
+        for v in self.xlogfiles:
+            monitor_count += 1  # Each xlogfile is one monitor
+        for v in self.livelogs:
+            monitor_count += 1  # Each livelog is one monitor
+
+        # Count queries in queue
+        query_count = len(self.queries) if hasattr(self, 'queries') else 0
+
+        # Count cached messages
+        msg_count = len(self.tellbuf) if hasattr(self, 'tellbuf') else 0
+
+        # Count rate limited users
+        rate_limit_count = len(self.rate_limits) if hasattr(self, 'rate_limits') else 0
+
+        # Count users under abuse penalty
+        abuse_penalty_count = len(self.abuse_penalties) if hasattr(self, 'abuse_penalties') else 0
+
+        # Build status message
+        status_parts = []
+        status_parts.append("Status: {} on {}".format(NICK, SERVERTAG))
+        status_parts.append("Uptime: {}d {}h {}m".format(uptime_days, uptime_hours, uptime_mins))
+        if mem_mb != "N/A":
+            status_parts.append("Memory: {:.1f}MB".format(mem_mb))
+        status_parts.append("Monitors: {}".format(monitor_count))
+        status_parts.append("Queries: {}".format(query_count))
+        status_parts.append("Messages: {}".format(msg_count))
+        status_parts.append("RateLimit: {}".format(rate_limit_count))
+        if abuse_penalty_count > 0:
+            status_parts.append("AbusePenalty: {}".format(abuse_penalty_count))
+
+        self.respond(replyto, sender, " | ".join(status_parts))
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
