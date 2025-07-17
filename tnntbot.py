@@ -65,33 +65,34 @@ from tnntbotconf import PWFILE, FILEROOT, WEBROOT, LOGROOT, ADMIN, YEAR
 from tnntbotconf import SERVERTAG
 try:
     from tnntbotconf import SPAMCHANNELS
-except:
+except ImportError:
     SPAMCHANNELS = CHANNELS
-try: from tnntbotconf import DCBRIDGE
-except:
+try:
+    from tnntbotconf import DCBRIDGE
+except ImportError:
     DCBRIDGE = None
 try:
     from tnntbotconf import TEST
-except:
+except ImportError:
     TEST = False
 try:
     from tnntbotconf import GRACEDAYS
-except:
+except ImportError:
     GRACEDAYS = 5
 try:
     from tnntbotconf import REMOTES
-except:
+except ImportError:
     SLAVE = True
     REMOTES = {}
 try:
     from tnntbotconf import MASTERS
-except:
+except ImportError:
     SLAVE = False
     MASTERS = []
 try:
     #from tnntbotconf import LOGBASE, IRCLOGS
     from tnntbotconf import IRCLOGS
-except:
+except ImportError:
     #LOGBASE = BOTDIR + "/tnntbot.log"
     IRCLOGS = LOGROOT
 
@@ -129,6 +130,20 @@ ABUSE_WINDOW = 30       # Time window for abuse detection (seconds)
 ABUSE_PENALTY = 900     # Abuse penalty duration in seconds (15 minutes)
 RESPONSE_RATE_LIMIT = 1   # Max penalty messages per 2 minutes to prevent spam
 RESPONSE_RATE_WINDOW = 120  # Penalty message rate limit window (2 minutes)
+
+# Time constants
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_HOUR = 3600
+SECONDS_PER_DAY = 86400
+LOG_POLL_INTERVAL = 3  # seconds between log file checks
+NICK_CHECK_INTERVAL = 30  # seconds between nick checks
+SUMMARY_UPDATE_INTERVAL = 300  # seconds between summary updates (5 minutes)
+STALE_BURST_TIMEOUT = 3600  # 1 hour before removing burst protection data
+
+# Game thresholds
+SCUM_THRESHOLD = 1000  # points below which quit/escape is considered scum
+SHORT_GAME_TURNS = 100  # turns below which games are batched
+SHORT_GAME_BATCH_SIZE = 100  # report every N short games
 
 # Pre-compiled regex patterns for better performance
 RE_COLOR_FG_BG = re.compile(r'\x03\d\d,\d\d')  # fg,bg pair
@@ -242,7 +257,8 @@ class DeathBotProtocol(irc.IRCClient):
     try:
         with open(PWFILE, "r") as f:
             password = f.read().strip()
-    except:
+    except (IOError, OSError) as e:
+        print("Warning: Could not read password file {}: {}".format(PWFILE, e))
         password = "NotTHEPassword"
     #if TWIT:
     #   try:
@@ -284,7 +300,8 @@ class DeathBotProtocol(irc.IRCClient):
                 chanLogName[c] = IRCLOGS + "/" + c + time.strftime("-%Y-%m-%d.log")
                 try:
                     chanLog[c] = open(chanLogName[c],'a')
-                except:
+                except (IOError, OSError) as e:
+                    print("Warning: Could not open log file {}: {}".format(chanLogName[c], e))
                     chanLog[c] = None
                 if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
 
@@ -294,7 +311,11 @@ class DeathBotProtocol(irc.IRCClient):
     try:
         with open(CLANTAGJSON) as f:
             clanTag = json.load(f)
-    except:
+    except (IOError, OSError) as e:
+        # File doesn't exist or can't be read - normal for fresh install
+        clanTag = {}
+    except json.JSONDecodeError as e:
+        print("Error: Invalid JSON in {}: {}".format(CLANTAGJSON, e))
         clanTag = {}
 
     # for displaying variants and server tags in colour
@@ -344,92 +365,51 @@ class DeathBotProtocol(irc.IRCClient):
                                 "ascend"  : 0,
                               }
 
-    # SASL auth nonsense required if we run on AWS
-    # copied from https://github.com/habnabit/txsocksx/blob/master/examples/tor-irc.py
-    # irc_CAP and irc_9xx are UNDOCUMENTED.
-    def connectionMade(self):
-        self.sendLine('CAP REQ :sasl')
-        #self.deferred = Deferred()
-        irc.IRCClient.connectionMade(self)
-
-    def irc_CAP(self, prefix, params):
-        if params[1] != 'ACK' or params[2].split() != ['sasl']:
-            print('sasl not available')
-            self.quit('')
-        sasl_string = '{0}\0{0}\0{1}'.format(self.nickname, self.password)
-        sasl_b64_bytes = base64.b64encode(sasl_string.encode(encoding='UTF-8',errors='strict'))
-        self.sendLine('AUTHENTICATE PLAIN')
-        self.sendLine('AUTHENTICATE ' + sasl_b64_bytes.decode('UTF-8'))
-
-    def irc_903(self, prefix, params):
-        self.sendLine('CAP END')
-
-    def irc_904(self, prefix, params):
-        print('sasl auth failed', params)
-        self.quit('')
-    irc_905 = irc_904
-
-    def signedOn(self):
-        self.factory.resetDelay()
-        self.startHeartbeat()
-        if not SLAVE:
-            for c in CHANNELS:
-                self.join(c)
-        random.seed()
-
-        # Track bot start time for uptime calculation
-        self.starttime = time.time()
-
-        self.logs = {}
-        # boolean for whether announcements from the log are 'spam', after dumpfmt
-        # true for livelogs, false for xlogfiles
-        for xlogfile, (variant, delim, dumpfmt) in self.xlogfiles.items():
-            self.logs[xlogfile] = (self.xlogfileReport, variant, delim, dumpfmt, False)
-        for livelog, (variant, delim) in self.livelogs.items():
-            self.logs[livelog] = (self.livelogReport, variant, delim, "", True)
-
-        self.logs_seek = {}
-        self.looping_calls = {}
-
-        #stats for hourly/daily spam
+    def _initializeStats(self):
+        """Initialize statistics tracking for hourly/daily/full periods."""
         self.stats = {}
         self.initStats("hour")
         self.initStats("day")
         self.initStats("full")
 
-        if not SLAVE:
-            # work out how much hour is left
-            nowtime = datetime.now()
-            # add 1 hour, then subtract min, sec, usec to get exact time of next hour.
-            nexthour = nowtime + timedelta(hours=1)
-            nexthour -= timedelta(minutes=nexthour.minute,
-                                  seconds=nexthour.second,
-                                  microseconds=nexthour.microsecond)
-            hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
-            reactor.callLater(hourleft, self.startHourly)
+    def _scheduleMasterTasks(self):
+        """Schedule master-specific periodic tasks."""
+        # work out how much hour is left
+        nowtime = datetime.now()
+        # add 1 hour, then subtract min, sec, usec to get exact time of next hour.
+        nexthour = nowtime + timedelta(hours=1)
+        nexthour -= timedelta(minutes=nexthour.minute,
+                              seconds=nexthour.second,
+                              microseconds=nexthour.microsecond)
+        hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
+        reactor.callLater(hourleft, self.startHourly)
 
-            # round up of basic stats for milestone reporting.
-            self.summaries = {}
-            for s in self.slaves:
-                # summary stats for each server
-                self.summaries[s] = { "games"   : 0,
-                                      "points"  : 0,
-                                      "turns"   : 0,
-                                      "realtime": 0,
-                                      "ascend"  : 0 }
-            # existing totals so we know when we pass a threshold
-            self.summary = { "games"   : 0,
-                             "points"  : 0,
-                             "turns"   : 0,
-                             "realtime": 0,
-                             "ascend"  : 0 }
-            self.milestones = { "games"   : [500, 1000, 5000, 10000, 50000, 100000],
-                                "points"  : [50000000, 100000000, 500000000, 1000000000, 5000000000],
-                                "turns"   : [1000000, 5000000, 10000000, 50000000, 100000000],
-                                "realtime": [50, 100, 500, 1000, 5000 ], # converted to 24h days (86400s)
-                                "ascend"  : [50, 100, 200, 300, 400, 500]}
+    def _initializeMilestones(self):
+        """Initialize milestone tracking for tournament announcements."""
+        # round up of basic stats for milestone reporting.
+        self.summaries = {}
+        for s in self.slaves:
+            # summary stats for each server
+            self.summaries[s] = { "games"   : 0,
+                                  "points"  : 0,
+                                  "turns"   : 0,
+                                  "realtime": 0,
+                                  "ascend"  : 0 }
+        # existing totals so we know when we pass a threshold
+        self.summary = { "games"   : 0,
+                         "points"  : 0,
+                         "turns"   : 0,
+                         "realtime": 0,
+                         "ascend"  : 0 }
+        self.milestones = { "games"   : [500, 1000, 5000, 10000, 50000, 100000],
+                            "points"  : [50000000, 100000000, 500000000, 1000000000, 5000000000],
+                            "turns"   : [1000000, 5000000, 10000000, 50000000, 100000000],
+                            "realtime": [50, 100, 500, 1000, 5000 ], # converted to 24h days (86400s)
+                            "ascend"  : [50, 100, 200, 300, 400, 500]}
 
-        #lastgame shite
+    def _initializeGameTracking(self):
+        """Initialize game tracking data structures."""
+        # lastgame tracking
         self.lastgame = "No last game recorded"
         self.lg = {}
         self.lastasc = "No last ascension recorded"
@@ -455,16 +435,27 @@ class DeathBotProtocol(irc.IRCClient):
         # for !tell
         try:
             self.tellbuf = shelve.open(BOTDIR + "/tellmsg.db", writeback=True)
-        except:
-            self.tellbuf = shelve.open(BOTDIR + "/tellmsg", writeback=True, protocol=2)
+        except Exception as e:
+            # Fallback to older format if .db fails
+            try:
+                self.tellbuf = shelve.open(BOTDIR + "/tellmsg", writeback=True, protocol=2)
+            except Exception as e2:
+                print("Error: Could not open tell message database: {}".format(e2))
+                # Create an in-memory fallback so bot doesn't crash
+                self.tellbuf = {}
+                # Disable sync method for in-memory dict
+                self.tellbuf.sync = lambda: None
 
-        # Initialize rate limiting
+    def _initializeRateLimiting(self):
+        """Initialize rate limiting data structures."""
         self.rate_limits = {}  # user -> list of command timestamps
         self.abuse_penalties = {}  # user -> penalty end timestamp
         self.consecutive_commands = {}  # user -> [command_time, command_time, ...]
         self.penalty_responses = {}  # user -> [timestamp, timestamp, ...]
         self.last_command_time = {}  # user -> timestamp of last command
 
+    def _initializeCommands(self):
+        """Initialize command handlers and callbacks."""
         # Commands must be lowercase here.
         self.commands = {"ping"     : self.doPing,
                          "time"     : self.doTime,
@@ -533,38 +524,120 @@ class DeathBotProtocol(irc.IRCClient):
                           "asc"     : self.usageAsc,
                           "streak"  : self.usageStreak}
 
+    def _initializeLogReading(self):
+        """Initialize log file reading and seek to appropriate positions."""
         # seek to end of livelogs
         for filepath in self.livelogs:
-            with filepath.open("r") as handle:
-                handle.seek(0, 2)
-                self.logs_seek[filepath] = handle.tell()
+            try:
+                with filepath.open("r") as handle:
+                    handle.seek(0, 2)
+                    self.logs_seek[filepath] = handle.tell()
+            except (IOError, OSError) as e:
+                print("Warning: Could not seek to end of livelog {}: {}".format(filepath, e))
+                self.logs_seek[filepath] = 0
 
         # sequentially read xlogfiles from beginning to pre-populate lastgame data.
         for filepath in self.xlogfiles:
-            with filepath.open("r") as handle:
-                for line in handle:
-                    delim = self.logs[filepath][2]
-                    game = parse_xlogfile_line(line, delim)
-                    game["variant"] = self.logs[filepath][1]
-                    game["dumpfmt"] = self.logs[filepath][3]
-                    for line in self.logs[filepath][0](game,False):
-                        pass
-                self.logs_seek[filepath] = handle.tell()
+            try:
+                with filepath.open("r") as handle:
+                    for line in handle:
+                        try:
+                            delim = self.logs[filepath][2]
+                            game = parse_xlogfile_line(line, delim)
+                            game["variant"] = self.logs[filepath][1]
+                            game["dumpfmt"] = self.logs[filepath][3]
+                            for line in self.logs[filepath][0](game,False):
+                                pass
+                        except Exception as e:
+                            print("Warning: Error processing xlogfile line during startup: {}".format(e))
+                            continue
+                    self.logs_seek[filepath] = handle.tell()
+            except (IOError, OSError) as e:
+                print("Warning: Could not read xlogfile {}: {}".format(filepath, e))
+                self.logs_seek[filepath] = 0
 
-        # poll logs for updates every 3 seconds
+    def _startMonitoringTasks(self):
+        """Start periodic monitoring tasks."""
+        # poll logs for updates
         for filepath in self.logs:
             self.looping_calls[filepath] = task.LoopingCall(self.logReport, filepath)
-            self.looping_calls[filepath].start(3)
+            self.looping_calls[filepath].start(LOG_POLL_INTERVAL)
 
         # Additionally, keep an eye on our nick to make sure it's right.
         # Perhaps we only need to set this up if the nick was originally
         # in use when we signed on, but a 30-second looping call won't kill us
         self.looping_calls["nick"] = task.LoopingCall(self.nickCheck)
-        self.looping_calls["nick"].start(30)
+        self.looping_calls["nick"].start(NICK_CHECK_INTERVAL)
         # Trophy/achievement tracking removed - JSON files deprecated
         # Update local milestone summary to master every 5 minutes
         self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
-        self.looping_calls["summary"].start(300)
+        self.looping_calls["summary"].start(SUMMARY_UPDATE_INTERVAL)
+
+    # SASL auth nonsense required if we run on AWS
+    # copied from https://github.com/habnabit/txsocksx/blob/master/examples/tor-irc.py
+    # irc_CAP and irc_9xx are UNDOCUMENTED.
+    def connectionMade(self):
+        self.sendLine('CAP REQ :sasl')
+        #self.deferred = Deferred()
+        irc.IRCClient.connectionMade(self)
+
+    def irc_CAP(self, prefix, params):
+        if params[1] != 'ACK' or params[2].split() != ['sasl']:
+            print('sasl not available')
+            self.quit('')
+        sasl_string = '{0}\0{0}\0{1}'.format(self.nickname, self.password)
+        sasl_b64_bytes = base64.b64encode(sasl_string.encode(encoding='UTF-8',errors='strict'))
+        self.sendLine('AUTHENTICATE PLAIN')
+        self.sendLine('AUTHENTICATE ' + sasl_b64_bytes.decode('UTF-8'))
+
+    def irc_903(self, prefix, params):
+        self.sendLine('CAP END')
+
+    def irc_904(self, prefix, params):
+        print('sasl auth failed', params)
+        self.quit('')
+    irc_905 = irc_904
+
+    def _initializeConnection(self):
+        """Initialize connection-related settings after signing on."""
+        self.factory.resetDelay()
+        self.startHeartbeat()
+        if not SLAVE:
+            for c in CHANNELS:
+                self.join(c)
+        random.seed()
+        # Track bot start time for uptime calculation
+        self.starttime = time.time()
+
+    def _initializeLogs(self):
+        """Initialize log monitoring configuration."""
+        self.logs = {}
+        # boolean for whether announcements from the log are 'spam', after dumpfmt
+        # true for livelogs, false for xlogfiles
+        for xlogfile, (variant, delim, dumpfmt) in self.xlogfiles.items():
+            self.logs[xlogfile] = (self.xlogfileReport, variant, delim, dumpfmt, False)
+        for livelog, (variant, delim) in self.livelogs.items():
+            self.logs[livelog] = (self.livelogReport, variant, delim, "", True)
+
+        self.logs_seek = {}
+        self.looping_calls = {}
+
+    def signedOn(self):
+        self._initializeConnection()
+        self._initializeLogs()
+
+        self._initializeStats()
+        if not SLAVE:
+            self._scheduleMasterTasks()
+            self._initializeMilestones()
+
+        self._initializeGameTracking()
+        self._initializeRateLimiting()
+
+        self._initializeCommands()
+
+        self._initializeLogReading()
+        self._startMonitoringTasks()
 
     #def tweet(self, message):
     #    if TWIT:
@@ -596,8 +669,11 @@ class DeathBotProtocol(irc.IRCClient):
         for c in CHANNELS:
             if self.chanLog[c]: self.chanLog[c].close()
             self.chanLogName[c] = IRCLOGS + "/" + c + time.strftime("-%Y-%m-%d.log")
-            try: self.chanLog[c] = open(self.chanLogName[c],'a') # 'w' is probably fine here
-            except: self.chanLog[c] = None
+            try:
+                self.chanLog[c] = open(self.chanLogName[c],'a') # 'w' is probably fine here
+            except (IOError, OSError) as e:
+                print("Warning: Could not rotate log file {}: {}".format(self.chanLogName[c], e))
+                self.chanLog[c] = None
             if self.chanLog[c]: os.chmod(self.chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
 
     def stripText(self, msg):
@@ -651,10 +727,13 @@ class DeathBotProtocol(irc.IRCClient):
     # replyto is channel, or private nick
     # sender is original sender of query
     def respond(self, replyto, sender, message):
-        if (replyto.lower() == sender.lower()): #private
-            self.msg(replyto, message)
-        else: #channel - prepend "Nick: " to message
-            self.msgLog(replyto, sender + ": " + message)
+        try:
+            if (replyto.lower() == sender.lower()): #private
+                self.msg(replyto, message)
+            else: #channel - prepend "Nick: " to message
+                self.msgLog(replyto, sender + ": " + message)
+        except Exception as e:
+            print("Error sending response to {}: {}".format(replyto, e))
 
     def _checkRateLimit(self, sender, command):
         """
@@ -875,7 +954,7 @@ class DeathBotProtocol(irc.IRCClient):
             # Clean up old burst protection data
             old_burst = []
             for user in list(self.last_command_time.keys()):
-                if now - self.last_command_time[user] > 3600:  # 1 hour
+                if now - self.last_command_time[user] > STALE_BURST_TIMEOUT:
                     old_burst.append(user)
 
             for user in old_burst:
@@ -950,7 +1029,7 @@ class DeathBotProtocol(irc.IRCClient):
             t = 0
             for s in self.summaries:
                 t += self.summaries[s][k]
-            if k == "realtime": t /= 86400 # days, not seconds
+            if k == "realtime": t /= SECONDS_PER_DAY # days, not seconds
             if not FirstContact:
                 for m in self.milestones[k]:
                     if self.summary[k] and t >= m and self.summary[k] < m:
@@ -1051,9 +1130,9 @@ class DeathBotProtocol(irc.IRCClient):
             self.multiServerCmd(NICK, NICK, ["fstats"])
             return
         elif abs(nowtime + timedelta(hours=1) - self.ttime["start"]) < timedelta(minutes=1):
-            reactor.callLater(3597, self.startCountdown,"start",3) # 3 seconds to the next hour
+            reactor.callLater(SECONDS_PER_HOUR - 3, self.startCountdown,"start",3) # 3 seconds to the next hour
         elif abs(nowtime + timedelta(hours=1) - self.ttime["end"]) < timedelta(minutes=1):
-            reactor.callLater(3597, self.startCountdown,"end",3) # 3 seconds to the next hour
+            reactor.callLater(SECONDS_PER_HOUR - 3, self.startCountdown,"end",3) # 3 seconds to the next hour
         game_on =  (nowtime > self.ttime["start"]) and (nowtime < self.ttime["end"])
         if TEST: game_on = True
         if not game_on: return
@@ -1069,7 +1148,7 @@ class DeathBotProtocol(irc.IRCClient):
         # this is scheduled to run at the first :00 after the bot starts
         # makes a looping_call to run every hour from here on.
         self.looping_calls["stats"] = task.LoopingCall(self.hourlyStats)
-        self.looping_calls["stats"].start(3600)
+        self.looping_calls["stats"].start(SECONDS_PER_HOUR)
 
     # Countdown timer
     def countDown(self):
@@ -1080,8 +1159,8 @@ class DeathBotProtocol(irc.IRCClient):
             td = (self.ttime[event] - datetime.now()) + timedelta(seconds=0.5)
             sec = int(td.seconds)
             cd["seconds"] = int(sec % 60)
-            cd["minutes"] = int((sec / 60) % 60)
-            cd["hours"] = int(sec / 3600)
+            cd["minutes"] = int((sec / SECONDS_PER_MINUTE) % SECONDS_PER_MINUTE)
+            cd["hours"] = int(sec / SECONDS_PER_HOUR)
             cd["days"] = td.days
             cd["countdown"] = td
             if td > timedelta(0):
@@ -1157,9 +1236,9 @@ class DeathBotProtocol(irc.IRCClient):
 
         # Calculate uptime
         uptime_seconds = int(time.time() - self.starttime)
-        uptime_days = uptime_seconds // 86400
-        uptime_hours = (uptime_seconds % 86400) // 3600
-        uptime_mins = (uptime_seconds % 3600) // 60
+        uptime_days = uptime_seconds // SECONDS_PER_DAY
+        uptime_hours = (uptime_seconds % SECONDS_PER_DAY) // SECONDS_PER_HOUR
+        uptime_mins = (uptime_seconds % SECONDS_PER_HOUR) // SECONDS_PER_MINUTE
 
         # Count active file monitors (match beholder's specific counting)
         monitor_count = 0
@@ -1664,7 +1743,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     ### Xlog/livelog event processing
     def startscummed(self, game):
-        return game["death"].lower() in ["quit", "escaped"] and game["points"] < 1000
+        return game["death"].lower() in ["quit", "escaped"] and game["points"] < SCUM_THRESHOLD
 
     # shortgame tracks consecutive games < 100 turns
     # we report a summary of these rather than individually
@@ -1751,10 +1830,10 @@ class DeathBotProtocol(irc.IRCClient):
         # end of statistics gathering
 
         game["shortsuff"] = ""
-        if game["turns"] < 100:
+        if game["turns"] < SHORT_GAME_TURNS:
             self.shortgame[game["name"]] = self.shortgame.get(game["name"],0) + 1
-            if report and self.shortgame[game["name"]] % 100 == 0:
-                yield("{0} has {1} consecutive games less than 100 turns.".format(game["name"], self.shortgame[game["name"]]))
+            if report and self.shortgame[game["name"]] % SHORT_GAME_BATCH_SIZE == 0:
+                yield("{0} has {1} consecutive games less than {2} turns.".format(game["name"], self.shortgame[game["name"]], SHORT_GAME_TURNS))
             return
         elif game["name"] in self.shortgame:
             if self.shortgame[game["name"]] == 1:
@@ -1838,30 +1917,43 @@ class DeathBotProtocol(irc.IRCClient):
     def updateSummary(self):
         # send most up-to-date full stats to master for milestone tracking
         # called every time a game ends, and on a timer in case master restarted.
-        for master in MASTERS:
-            self.msg(master, "#S# " + json.dumps({k: self.stats["full"][k] for k in ('games', 'ascend', 'points', 'turns', 'realtime')}))
+        try:
+            summary_data = {k: self.stats["full"][k] for k in ('games', 'ascend', 'points', 'turns', 'realtime')}
+            for master in MASTERS:
+                self.msg(master, "#S# " + json.dumps(summary_data))
+        except Exception as e:
+            print("Error sending summary update: {}".format(e))
 
     def logReport(self, filepath):
-        with filepath.open("r") as handle:
-            handle.seek(self.logs_seek[filepath])
+        try:
+            with filepath.open("r") as handle:
+                handle.seek(self.logs_seek[filepath])
 
-            for line in handle:
-                delim = self.logs[filepath][2]
-                game = parse_xlogfile_line(line, delim)
-                game["dumpfmt"] = self.logs[filepath][3]
-                spam = self.logs[filepath][4]
-                for line in self.logs[filepath][0](game):
-                    line = self.displaytag(SERVERTAG) + " " + line
-                    if SLAVE:
-                        if spam:
-                            line = "SPAM: " + line
-                        for master in MASTERS:
-                            self.msg(master, line)
-                    else:
-                        self.announce(line,spam)
-                self.updateSummary()
+                for line in handle:
+                    try:
+                        delim = self.logs[filepath][2]
+                        game = parse_xlogfile_line(line, delim)
+                        game["dumpfmt"] = self.logs[filepath][3]
+                        spam = self.logs[filepath][4]
+                        for line in self.logs[filepath][0](game):
+                            line = self.displaytag(SERVERTAG) + " " + line
+                            if SLAVE:
+                                if spam:
+                                    line = "SPAM: " + line
+                                for master in MASTERS:
+                                    self.msg(master, line)
+                            else:
+                                self.announce(line,spam)
+                        self.updateSummary()
+                    except Exception as e:
+                        print("Error processing log line from {}: {}".format(filepath, e))
+                        # Continue processing other lines
+                        continue
 
-            self.logs_seek[filepath] = handle.tell()
+                self.logs_seek[filepath] = handle.tell()
+        except (IOError, OSError) as e:
+            print("Error reading log file {}: {}".format(filepath, e))
+            # Don't update seek position on read error
 
 class DeathBotFactory(ReconnectingClientFactory):
     def startedConnecting(self, connector):
