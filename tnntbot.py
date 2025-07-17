@@ -46,7 +46,7 @@ from twisted.application import internet, service
 from datetime import datetime, timedelta
 import site     # to help find botconf
 import base64
-import time     # for !time
+import time     # for !time and rate limiting
 import ast      # for conduct/achievement bitfields - not really used
 import os       # for check path exists (dumplogs), and chmod
 import stat     # for chmod mode bits
@@ -95,25 +95,13 @@ except:
     #LOGBASE = BOTDIR + "/tnntbot.log"
     IRCLOGS = LOGROOT
 
-# config.json is where all the tournament trophies, achievements, other stuff are defined.
-# it's mainly used for driving the official scoreboard but we use it here too.
-#TWIT = False
+# JSON configuration files are deprecated - trophy/achievement tracking removed
 if not SLAVE:
-    try:
-        from tnntbotconf import CONFIGJSON
-    except:
-        CONFIGJSON = "config.json" # assume current directory
-
-    # slurp the whole shebang into a big-arse dict.
-    # need to parse out the comments. Thses must start with '# ' or '#-'
-    # because my regexp is dumb
-    config = json.loads(re.sub('#[ -].*','',open(CONFIGJSON).read()))
-
-    # scoreboard.json is the output from the scoreboard script that tracks achievements and trophies
-    try:
-        from tnntbotconf import SCOREBOARDJSON
-    except:
-        SCOREBOARDJSON = "scoreboard.json" # assume current directory
+    # Hardcoded game data for NetHack roles, races, aligns, genders
+    NETHACK_ROLES = ["Arc", "Bar", "Cav", "Hea", "Kni", "Mon", "Pri", "Ran", "Rog", "Sam", "Tou", "Val", "Wiz"]
+    NETHACK_RACES = ["Dwa", "Elf", "Gno", "Hum", "Orc"]
+    NETHACK_ALIGNS = ["Cha", "Law", "Neu"]
+    NETHACK_GENDERS = ["Mal", "Fem"]
 
     # twitter - minimalist twitter api: http://mike.verdone.ca/twitter/
     # pip install twitter
@@ -131,6 +119,16 @@ if not SLAVE:
     #    TWIT = False
 
 CLANTAGJSON = BOTDIR + "/clantag.json"
+
+# Rate limiting constants
+RATE_LIMIT_WINDOW = 60  # Rate limiting time window in seconds
+RATE_LIMIT_COMMANDS = 60   # Commands per minute for all operations (1/second)
+BURST_WINDOW = 1        # Burst protection: only 1 command per second window
+ABUSE_THRESHOLD = 10    # Consecutive commands before abuse penalty
+ABUSE_WINDOW = 30       # Time window for abuse detection (seconds)
+ABUSE_PENALTY = 900     # Abuse penalty duration in seconds (15 minutes)
+RESPONSE_RATE_LIMIT = 1   # Max penalty messages per 2 minutes to prevent spam
+RESPONSE_RATE_WINDOW = 120  # Penalty message rate limit window (2 minutes)
 
 # some lookup tables for formatting messages
 # these are not yet in conig.json
@@ -165,6 +163,27 @@ gender = { "Mal": "Male",
            "Fem": "Female"
          }
 
+def safe_int_parse(s):
+    """Safely parse integers, including hex values like 0x1234"""
+    try:
+        # Try to parse as int, supports base 10, hex (0x), octal (0o), binary (0b)
+        return int(s, 0)
+    except ValueError:
+        # If that fails, try without base detection
+        try:
+            return int(s)
+        except ValueError:
+            return 0  # Default to 0 for invalid values
+
+def sanitize_format_string(text):
+    """Sanitize text to prevent format string injection attacks.
+
+    Escapes curly braces that could be used in format string attacks.
+    """
+    if not isinstance(text, str):
+        return text
+    return text.replace('{', '{{').replace('}', '}}')
+
 def fromtimestamp_int(s):
     return datetime.fromtimestamp(int(s))
 
@@ -181,14 +200,22 @@ xlogfile_parse = dict.fromkeys(
     ("points", "deathdnum", "deathlev", "maxlvl", "hp", "maxhp", "deaths",
      "uid", "turns", "xplevel", "exp","depth","dnum","score","amulet"), int)
 xlogfile_parse.update(dict.fromkeys(
-    ("conduct", "event", "carried", "flags", "achieve"), ast.literal_eval))
+    ("conduct", "event", "carried", "flags", "achieve"), safe_int_parse))
 
 def parse_xlogfile_line(line, delim):
     record = {}
+    # User-controlled fields that need sanitization
+    user_controlled_fields = {"name", "charname", "death", "role", "race",
+                             "gender", "align", "bones_killed", "bones_rank",
+                             "killed_uniq", "wish", "shout", "genocided_monster",
+                             "shop", "shopkeeper"}
     for field in line.strip().decode(encoding='UTF-8', errors='ignore').split(delim):
         key, _, value = field.partition("=")
         if key in xlogfile_parse:
             value = xlogfile_parse[key](value)
+        # Sanitize user-controlled fields to prevent format string injection
+        elif key in user_controlled_fields:
+            value = sanitize_format_string(value)
         record[key] = value
     return record
 
@@ -254,7 +281,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     xlogfiles = {filepath.FilePath(FILEROOT+"tnnt/var/xlogfile"): ("tnnt", "\t", "tnnt/dumplog/{starttime}.tnnt.html")}
     livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
-    scoreboard = {}
+    # Scoreboard removed - JSON files deprecated
     try:
         clanTag = json.load(open(CLANTAGJSON))
     except:
@@ -418,6 +445,13 @@ class DeathBotProtocol(irc.IRCClient):
         except:
             self.tellbuf = shelve.open(BOTDIR + "/tellmsg", writeback=True, protocol=2)
 
+        # Initialize rate limiting
+        self.rate_limits = {}  # user -> list of command timestamps
+        self.abuse_penalties = {}  # user -> penalty end timestamp
+        self.consecutive_commands = {}  # user -> [command_time, command_time, ...]
+        self.penalty_responses = {}  # user -> [timestamp, timestamp, ...]
+        self.last_command_time = {}  # user -> timestamp of last command
+
         # Commands must be lowercase here.
         self.commands = {"ping"     : self.doPing,
                          "time"     : self.doTime,
@@ -513,11 +547,7 @@ class DeathBotProtocol(irc.IRCClient):
         # in use when we signed on, but a 30-second looping call won't kill us
         self.looping_calls["nick"] = task.LoopingCall(self.nickCheck)
         self.looping_calls["nick"].start(30)
-        # 1 minute looping call for trophies and achievements.
-        self.looping_calls["trophy"] = task.LoopingCall(self.checkScoreboard)
-        self.looping_calls["trophy"].start(30)
-        # Call it now to seed the trophy dict.
-        self.checkScoreboard()
+        # Trophy/achievement tracking removed - JSON files deprecated
         # Update local milestone summary to master every 5 minutes
         self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
         self.looping_calls["summary"].start(300)
@@ -611,6 +641,234 @@ class DeathBotProtocol(irc.IRCClient):
             self.msg(replyto, message)
         else: #channel - prepend "Nick: " to message
             self.msgLog(replyto, sender + ": " + message)
+
+    def _checkRateLimit(self, sender, command):
+        """
+        Check if user is rate limited for this command.
+        Returns True if command should be allowed, False if rate limited.
+        """
+        try:
+            now = time.time()
+
+            # Check if user is currently under abuse penalty
+            if sender in self.abuse_penalties:
+                if now < self.abuse_penalties[sender]:
+                    return False  # Still under penalty
+                else:
+                    # Penalty expired, clean up
+                    del self.abuse_penalties[sender]
+                    if sender in self.consecutive_commands:
+                        del self.consecutive_commands[sender]
+
+            # Clean up old rate limit entries (older than 60 seconds)
+            if sender in self.rate_limits:
+                self.rate_limits[sender] = [
+                    timestamp for timestamp in self.rate_limits[sender]
+                    if now - timestamp < RATE_LIMIT_WINDOW
+                ]
+
+                # Remove empty entries
+                if not self.rate_limits[sender]:
+                    del self.rate_limits[sender]
+
+            # Initialize user's rate limit tracking if needed
+            if sender not in self.rate_limits:
+                self.rate_limits[sender] = []
+
+            # Check if user has exceeded rate limit
+            if len(self.rate_limits[sender]) >= RATE_LIMIT_COMMANDS:
+                return False  # Rate limited
+
+            # Record this command attempt
+            self.rate_limits[sender].append(now)
+
+            # Track consecutive commands for abuse detection
+            if sender not in self.consecutive_commands:
+                self.consecutive_commands[sender] = []
+
+            # Clean up old consecutive command entries
+            self.consecutive_commands[sender] = [
+                timestamp for timestamp in self.consecutive_commands[sender]
+                if now - timestamp < ABUSE_WINDOW
+            ]
+
+            # Add this command to consecutive tracking
+            self.consecutive_commands[sender].append(now)
+
+            # Check for abuse pattern
+            if len(self.consecutive_commands[sender]) >= ABUSE_THRESHOLD:
+                # Apply abuse penalty
+                self.abuse_penalties[sender] = now + ABUSE_PENALTY
+                # Clear rate limits to prevent further commands
+                if sender in self.rate_limits:
+                    del self.rate_limits[sender]
+                return False  # Apply penalty
+
+            return True  # Command allowed
+
+        except Exception as e:
+            print("Rate limiting error for {}: {}".format(sender, e))
+            # Fail-safe: allow command if rate limiting breaks
+            return True
+
+    def _shouldSendPenaltyMessage(self, sender):
+        """Check if we should send a rate limit penalty message."""
+        try:
+            now = time.time()
+
+            # Initialize penalty response tracking if needed
+            if sender not in self.penalty_responses:
+                self.penalty_responses[sender] = []
+
+            # Clean up old penalty response entries
+            self.penalty_responses[sender] = [
+                timestamp for timestamp in self.penalty_responses[sender]
+                if now - timestamp < RESPONSE_RATE_WINDOW
+            ]
+
+            # Check if user has exceeded penalty message rate limit
+            if len(self.penalty_responses[sender]) >= RESPONSE_RATE_LIMIT:
+                return False  # Don't send penalty message
+
+            # Record this penalty response
+            self.penalty_responses[sender].append(now)
+            return True  # Send penalty message
+
+        except Exception as e:
+            print("Penalty response rate limiting error for {}: {}".format(sender, e))
+            return True  # Fail-safe: allow message
+
+    def _checkBurstProtection(self, sender, command):
+        """
+        Check if user is sending commands too rapidly (burst protection).
+        Returns True if command should be allowed, False if it should be silently ignored.
+        """
+        try:
+            now = time.time()
+
+            # Check last command time
+            if sender in self.last_command_time:
+                time_since_last = now - self.last_command_time[sender]
+                if time_since_last < BURST_WINDOW:
+                    # Too fast - silently ignore
+                    return False
+
+            # Update last command time
+            self.last_command_time[sender] = now
+            return True
+
+        except Exception as e:
+            print("Burst protection error for {}: {}".format(sender, e))
+            return True  # Fail-safe: allow command
+
+    def generate_dumplog_url(self, game, dumpfile):
+        """Generate dumplog URL, checking local storage first, then S3.
+
+        Returns the URL if file exists in either location, or a sorry message otherwise.
+        """
+        # First check if file exists locally
+        if os.path.exists(dumpfile):
+            # File exists locally, use regular URL
+            dumpurl = urllib.parse.quote(game["dumpfmt"].format(**game))
+            return self.dump_url_prefix.format(**game) + dumpurl
+
+        # File doesn't exist locally - generate S3 URL
+        # S3 URL structure differs by server
+        s3_base = None
+        if SERVERTAG == "hdf-us":
+            s3_base = "https://hdf-us.s3.amazonaws.com/dumplogs/"
+        elif SERVERTAG == "hdf-eu":
+            s3_base = "https://hdf-eu.s3.amazonaws.com/dumplogs/"
+        elif SERVERTAG == "hdf-au":
+            s3_base = "https://hdf-au.s3.amazonaws.com/dumplogs/"
+
+        if s3_base:
+            # Generate S3 URL
+            dumppath = urllib.parse.quote(game["dumpfmt"].format(**game))
+            # S3 path structure: dumplogs/{name[0]}/{name}/{dumppath}
+            # dumppath already contains tnnt/dumplog/ prefix
+            first_char = game["name"][0] if game["name"] else "a"
+            s3_url = "{base}{first}/{name}/{path}".format(
+                base=s3_base,
+                first=first_char.lower(),
+                name=game["name"].lower(),
+                path=dumppath
+            )
+            return s3_url
+
+        # If no S3 base configured for this server, return sorry message
+        return "(sorry, no dump exists for {name})".format(**game)
+
+    def _cleanupRateLimits(self):
+        """Clean up old rate limiting data to prevent memory leaks."""
+        try:
+            now = time.time()
+
+            # Clean up old rate limiting entries
+            users_to_clean = []
+            for user in list(self.rate_limits.keys()):
+                # Remove timestamps older than rate limit window
+                self.rate_limits[user] = [
+                    timestamp for timestamp in self.rate_limits[user]
+                    if now - timestamp < RATE_LIMIT_WINDOW
+                ]
+                # Remove empty entries
+                if not self.rate_limits[user]:
+                    users_to_clean.append(user)
+
+            for user in users_to_clean:
+                del self.rate_limits[user]
+
+            # Clean up expired abuse penalties
+            expired_penalties = []
+            for user in list(self.abuse_penalties.keys()):
+                if now >= self.abuse_penalties[user]:
+                    expired_penalties.append(user)
+
+            for user in expired_penalties:
+                del self.abuse_penalties[user]
+                # Also clean up consecutive commands for expired penalties
+                if user in self.consecutive_commands:
+                    del self.consecutive_commands[user]
+
+            # Clean up old consecutive command tracking
+            old_consecutive = []
+            for user in list(self.consecutive_commands.keys()):
+                # Remove old timestamps
+                self.consecutive_commands[user] = [
+                    timestamp for timestamp in self.consecutive_commands[user]
+                    if now - timestamp < ABUSE_WINDOW * 2  # Keep for 2x abuse window
+                ]
+                if not self.consecutive_commands[user]:
+                    old_consecutive.append(user)
+
+            for user in old_consecutive:
+                del self.consecutive_commands[user]
+
+            # Clean up old penalty response tracking
+            old_responses = []
+            for user in list(self.penalty_responses.keys()):
+                self.penalty_responses[user] = [
+                    timestamp for timestamp in self.penalty_responses[user]
+                    if now - timestamp < RESPONSE_RATE_WINDOW
+                ]
+                if not self.penalty_responses[user]:
+                    old_responses.append(user)
+
+            for user in old_responses:
+                del self.penalty_responses[user]
+
+            # Clean up old burst protection data
+            old_burst = []
+            for user in list(self.last_command_time.keys()):
+                if now - self.last_command_time[user] > 3600:  # 1 hour
+                    old_burst.append(user)
+
+            for user in old_burst:
+                del self.last_command_time[user]
+
+        except Exception as e:
+            print("Error during rate limit cleanup: {}".format(e))
 
     # Query/Response handling
     #Q#
@@ -758,6 +1016,10 @@ class DeathBotProtocol(irc.IRCClient):
 
     def hourlyStats(self):
         nowtime = datetime.now()
+
+        # Clean up old rate limiting data
+        self._cleanupRateLimits()
+
         # special case handling for start/end
         # we are running at the top of the hour
         # so checking we are within 1 minute of start/end time is sufficient
@@ -805,94 +1067,7 @@ class DeathBotProtocol(irc.IRCClient):
                 return cd
         return cd
 
-    # Trohy/achievement reporting
-    def listStuff(self, theList):
-        # make a string from a list, like "this, that, and the other thing"
-        listStr = ""
-        for (i,n) in enumerate(theList):
-            # first item
-            if (i == 0):
-                listStr = str(n)
-            # last item
-            elif (i == len(theList)-1):
-                if (i > 1): listStr += "," # oxford
-                listStr += " and " + str(n)
-            # middle items
-            else:
-                listStr += ", " + str(n)
-        return listStr
-
-    def listTrophies(self,trophies):
-        tlist = []
-        for t in trophies:
-            tlist += [config["trophies"][str(t)]["title"].encode('utf-8')]
-        return self.listStuff(tlist)
-
-    def listAchievements(self, achievements, maxCount):
-        if len(achievements) > maxCount:
-            return str(len(achievements)) + " new achievements"
-        alist = []
-        for a in achievements:
-            alist += [config["achievements"][str(a)]["title"].encode('utf-8')]
-        return self.listStuff(alist)
-
-    def checkScoreboard(self):
-        if SLAVE: return
-        # this chokes down the whole json file output by the scoreboard system,
-        # Makes some comparisons,
-        # and reports anything interesting that has changed.
-        prevScoreboard = {}
-        if self.scoreboard: prevScoreboard = self.scoreboard
-        try:
-            self.scoreboard = json.load(open(SCOREBOARDJSON))
-        except:
-            print("Failed to load scoreboard from " + SCOREBOARDJSON)
-            self.scoreboard = prevScoreboard
-            return
-
-        if not prevScoreboard: return
-        if "all" not in self.scoreboard["players"]: return # scoreboard is empty at the start
-        prevGreatFoo = prevScoreboard["trophies"]["players"].get("greatfoo",{})
-        for player in self.scoreboard["players"]:
-            currTrophies = self.scoreboard["players"][player].get("trophies",[])
-            try: prevTrophies = prevScoreboard["players"][player].get("trophies",[])
-            except: prevTrophies = [] # Player won't be in prev, if it's their 1st game
-            newTrophies = []
-            for t in currTrophies:
-                if t not in prevTrophies and t["trophy"] != "noscum": # noscum trophy will be spammy
-                    newTrophies += [t["trophy"]]
-            if newTrophies:
-                self.announce(self.displaytag("trophy") + " "
-                              + str(self.scoreboard["players"][player]["name"].encode('utf-8'))
-                              + " now has " + self.listTrophies(newTrophies) + "!")
-            currAch = self.scoreboard["players"][player].get("achievements",[])
-            try: prevAch = prevScoreboard["players"][player].get("achievements",[])
-            except: prevAch = []
-            newAch = []
-            for a in currAch:
-                if a not in prevAch:
-                    newAch += [a]
-            if newAch:
-                alist = self.listAchievements(newAch, 4)
-                if alist == "Shafted":
-                    alist = " just got " + alist
-                else:
-                    alist = " just earned " + alist
-                self.announce(self.displaytag("achieve") + " "
-                              + str(self.scoreboard["players"][player]["name"].encode('utf-8'))
-                              + alist + ".", True)
-
-        # report clan ranking changes
-        # this assumes clan["n"] is the index to the clan list and it never changes
-        for clan in self.scoreboard["clans"]:
-            if len(prevScoreboard["clans"]) <= int(clan["n"]):
-                self.announce(self.displaytag("clan") + " New clan registered - "
-                              + str(clan["name"].encode('utf-8')) + "!")
-            elif "rank" in clan and prevScoreboard["clans"][int(clan["n"])].get("rank",0) > clan["rank"]:
-                self.announce(self.displaytag("clan") + " Clan "
-                              + str(clan["name"].encode('utf-8'))
-                              + " advances to rank "
-                              + str(clan["rank"]) + "!")
+    # Trophy/achievement/scoreboard methods removed - JSON files deprecated
 
 
     # implement commands here
@@ -928,78 +1103,16 @@ class DeathBotProtocol(irc.IRCClient):
         self.respond(replyto, sender, self.helpURL )
 
     def doScore(self, sender, replyto, msgwords):
-        if len(msgwords) > 2:
-            self.respond(replyto, sender, TRIGGER + msgwords[0]
-                         + " - get tournament score and ranking of yourself or another player")
-            return
-        if len(msgwords) == 2:
-            # accommodate the '\' clan tags that players add in irc.
-            PLR = msgwords[1].split("\\")[0]
-        else:
-            PLR = sender
-        plr = PLR.lower()
-        # case insensitive search
-        player = None
-        for p in list(self.scoreboard["players"].keys()):
-            if plr == p.lower():
-                player = p
-                break
-        if not player:
-            self.respond(replyto, sender, "Can't find player {0} on the scoreboard.".format(PLR))
-            return
-        score = int(self.scoreboard["players"][player]["score"])
-        rank = int(self.scoreboard["players"][player]["rank"])
-        self.respond(replyto, sender, str(player) + " - Score: {0} - Rank: {1}".format(score, rank))
+        # Simplified - just return URL since JSON scoreboard is deprecated
+        self.respond(replyto, sender, "Check the tournament scoreboard at: " + self.scoresURL)
 
     def doClanTag(self, sender, replyto, msgwords):
-        # msgwords[1] is the desired tag, msgwords[the rest] is the clan name as it appears in the scoreboard
-        # case is ignored for searching, but correct case is stored in the table for faster lookup later.
-        if len(msgwords) < 3:
-            self.respond(replyto, sender, TRIGGER + msgwords[0] + " <tag> <clan name> - assigns a shorthand tag to a clan for use with " + TRIGGER + "clanscore")
-            return
-        if msgwords[1].lower() in [clan["name"].lower() for clan in self.scoreboard["clans"]["all"]]:
-            self.respond(replyto, sender, msgwords[1] + " is already the name of a clan.") # people will be smartarses
-            return
-        for clan in self.scoreboard["clans"]:
-            if clan["name"].lower() == " ".join(msgwords[2:]).lower():
-                self.clanTag[msgwords[1].lower()] = {"n": int(clan["n"]), "name": str(clan["name"])}
-                self.respond(replyto, sender, "Clan Tag {0} assigned to {1}".format(msgwords[1],str(clan["name"])))
-                with open(CLANTAGJSON, 'w') as f:
-                    json.dump(self.clanTag, f)
-                return
-        self.respond(replyto, sender, "Can't find a clan named {0} on the scoreboard".format(" ".join(msgwords[2:])))
+        # ClanTag functionality removed - JSON scoreboard is deprecated
+        self.respond(replyto, sender, "Clan tags are no longer supported. Check the tournament scoreboard at: " + self.scoresURL)
 
     def doClanScore(self, sender, replyto, msgwords):
-        tryClan, name, score, rank = '', '', 0, 0
-        # the hard part is working out what clan we need to look up
-        if len(msgwords) > 1:
-            tryClan = " ".join(msgwords[1:])
-        else:
-            splitNick = sender.split("\\")
-            if len(splitNick) > 1:
-                tryClan = splitNick[1]
-            else:
-                # look up clan of player(sender)
-                for clan in self.scoreboard["clans"]:
-                    # fugly case-insensitive search
-                    if sender.lower() in " ".join(clan["players"]).lower().split(" "):
-                        name, score, rank = [clan[x] for x in ["name","score","rank"]]
-                        break
-        if not name:
-            if not tryClan:
-                self.respond(replyto, sender, "Could not get clan membership for " + sender + ".")
-                return
-            if tryClan.lower() in self.clanTag:
-                clan = self.scoreboard["clans"][self.clanTag[tryClan.lower()]["n"]]
-                name, score, rank = [clan[x] for x in ["name","score","rank"]]
-            else:
-                for clan in self.scoreboard["clans"]:
-                    if clan["name"].lower() == tryClan.lower():
-                        name, score, rank = [clan[x] for x in ["name","score","rank"]]
-        if name:
-            self.respond(replyto, sender, str(name) + " - Score: {0} - Rank: {1}".format(int(score),int(rank)))
-        else:
-            self.respond(replyto, sender, "Can't find clan {0}".format(tryClan))
+        # Simplified - just return URL since JSON scoreboard is deprecated
+        self.respond(replyto, sender, "Check the tournament clan rankings at: https://tnnt.org/clans")
 
     def doCommands(self, sender, replyto, msgwords):
         self.respond(replyto, sender, "available commands are: help ping time tell source lastgame lastasc asc streak rcedit scores sb score ttyrec clanscore clantag whereis players who commands" )
@@ -1025,7 +1138,10 @@ class DeathBotProtocol(irc.IRCClient):
             self.tellbuf[rcpt.lower()] = []
         self.tellbuf[rcpt.lower()].append((forwardto,sender,time.time(),message))
         self.tellbuf.sync()
-        self.msgLog(replyto,random.choice(willDo).format(sender,rcpt))
+        # Sanitize sender and recipient names to prevent format string injection
+        safe_sender = sanitize_format_string(sender)
+        safe_rcpt = sanitize_format_string(rcpt)
+        self.msgLog(replyto,random.choice(willDo).format(safe_sender,safe_rcpt))
 
     def msgTime(self, stamp):
         # Timezone handling is not great, but the following seems to work.
@@ -1050,13 +1166,15 @@ class DeathBotProtocol(irc.IRCClient):
                     if sender not in nicksfrom: nicksfrom += [sender]
                 self.respond(user,user, "Message from " + sender + " at " + self.msgTime(ts) + ": " + message)
             # "tom" "tom and dick" "tom, dick, and harry"
+            # Sanitize all nicknames to prevent format string injection
+            safe_nicks = [sanitize_format_string(nick) for nick in nicksfrom]
             fromstr = ""
-            for (i,n) in enumerate(nicksfrom):
+            for (i,n) in enumerate(safe_nicks):
                 # first item
                 if (i == 0):
                     fromstr = n
                 # last item
-                elif (i == len(nicksfrom)-1):
+                elif (i == len(safe_nicks)-1):
                     if (i > 1): fromstr += "," # oxford comma :P
                     fromstr += " and " + n
                 # middle items
@@ -1176,6 +1294,14 @@ class DeathBotProtocol(irc.IRCClient):
 
     def getWhereIs(self, master, sender, query, msgwords):
         ammy = ["", " (with Amulet)"]
+
+        # Validate player name to prevent path traversal
+        player_name = msgwords[1]
+        if "/" in player_name or ".." in player_name or "\\" in player_name:
+            self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG)
+                     + " Invalid player name.")
+            return
+
         # look for inrpogress file first, only report active games
         for var in list(self.inprog.keys()):
             for inpdir in self.inprog[var]:
@@ -1238,22 +1364,20 @@ class DeathBotProtocol(irc.IRCClient):
             repl += "."
             self.msg(master,"#R# " + query + " " + repl)
             return
-        for role in config["nethack"]["roles"]:
-             role = role.title() # capitalise the first letter
+        for role in NETHACK_ROLES:
              if role in self.asc[plr]:
                 totasc += self.asc[plr][role]
                 stats += " " + str(self.asc[plr][role]) + "x" + role
         stats += ", "
-        for race in config["nethack"]["races"]:
-            race = race.title()
+        for race in NETHACK_RACES:
             if race in self.asc[plr]:
                 stats += " " + str(self.asc[plr][race]) + "x" + race
         stats += ", "
-        for alig in config["nethack"]["aligns"]:
+        for alig in NETHACK_ALIGNS:
             if alig in self.asc[plr]:
                 stats += " " + str(self.asc[plr][alig]) + "x" + alig
         stats += ", "
-        for gend in config["nethack"]["genders"]:
+        for gend in NETHACK_GENDERS:
             if gend in self.asc[plr]:
                 stats += " " + str(self.asc[plr][gend]) + "x" + gend
         stats += "."
@@ -1340,7 +1464,10 @@ class DeathBotProtocol(irc.IRCClient):
 
     # Listen to the chatter
     def privmsg(self, sender, dest, message):
+        # Extract both nick and hostmask for rate limiting
+        sender_full = sender
         sender = sender.partition("!")[0]
+        sender_host = sender_full.partition("!")[2]  # user@host part for rate limiting
         if SLAVE and sender not in MASTERS: return
         if (dest in CHANNELS): #public message
             self.log(dest, "<"+sender+"> " + message)
@@ -1364,7 +1491,29 @@ class DeathBotProtocol(irc.IRCClient):
             self.rollDice(sender, replyto, msgwords)
             return
         if self.commands.get(msgwords[0].lower(), False):
-            self.commands[msgwords[0].lower()](sender, replyto, msgwords)
+            command = msgwords[0].lower()
+
+            # Skip rate limiting for internal commands (#q#, #r#, #p#)
+            if not command.startswith('#'):
+                # Apply burst protection (use host for rate limiting)
+                if not self._checkBurstProtection(sender_host, command):
+                    return  # Silently ignore burst commands
+
+                # Apply rate limiting (use host for rate limiting)
+                if not self._checkRateLimit(sender_host, command):
+                    # Check if we should send a penalty message
+                    if not self._shouldSendPenaltyMessage(sender_host):
+                        return  # Silently ignore to prevent penalty message spam
+
+                    # Provide specific error message based on penalty type
+                    if hasattr(self, 'abuse_penalties') and sender_host in self.abuse_penalties:
+                        remaining = int(self.abuse_penalties[sender_host] - time.time())
+                        self.respond(replyto, sender, "Abuse penalty active: {}m {}s remaining. (Triggered by spamming consecutive commands)".format(remaining//60, remaining%60))
+                    else:
+                        self.respond(replyto, sender, "Rate limit exceeded. Please wait before using {} again.".format(TRIGGER + command))
+                    return
+
+            self.commands[command](sender, replyto, msgwords)
             return
         if dest not in CHANNELS and sender in self.slaves: # game announcement from slave
             spam = False
@@ -1463,13 +1612,15 @@ class DeathBotProtocol(irc.IRCClient):
         dumplog = game.get("dumplog",False)
         # Need to figure out the dump path before messing with the name below
         dumpfile = (self.dump_file_prefix + game["dumpfmt"]).format(**game)
-        dumpurl = "(sorry, no dump exists for {name})".format(**game)
-        if TEST or os.path.exists(dumpfile): # dump files may not exist on test system
-            # quote only the game-specific part, not the prefix.
-            # Otherwise it quotes the : in https://
-            # assume the rest of the url prefix is safe.
+
+        # Generate dumplog URL using new method that checks both local and S3
+        if TEST:
+            # In test mode, always generate a URL
             dumpurl = urllib.parse.quote(game["dumpfmt"].format(**game))
             dumpurl = self.dump_url_prefix.format(**game) + dumpurl
+        else:
+            # In production, use the new method that checks both local and S3
+            dumpurl = self.generate_dumplog_url(game, dumpfile)
         self.lg[lname] = dumpurl
         self.lastgame = dumpurl
 
