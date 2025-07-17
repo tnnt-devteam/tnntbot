@@ -46,18 +46,17 @@ from twisted.application import internet, service
 from datetime import datetime, timedelta
 import site     # to help find botconf
 import base64
-import time     # for !time and rate limiting
-import ast      # for conduct/achievement bitfields - not really used
+import time     # for $time and rate limiting
 import os       # for check path exists (dumplogs), and chmod
 import stat     # for chmod mode bits
 import re       # for hello, and other things.
 import urllib.request, urllib.parse, urllib.error   # for dealing with NH4 variants' #&$#@ spaces in filenames.
-import shelve   # for persistent !tell messages
-import random   # for !rng and friends
-import glob     # for matching in !whereis
+import shelve   # for persistent $tell messages
+import random   # for $rng and friends
+import glob     # for matching in $whereis
 import json     # for tournament scoreboard things
 
-# command trigger - this should be in botconf - next time.
+# command trigger - this should be in tnntbotconf - next time.
 TRIGGER = '$'
 site.addsitedir('.')
 from tnntbotconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
@@ -129,6 +128,13 @@ ABUSE_WINDOW = 30       # Time window for abuse detection (seconds)
 ABUSE_PENALTY = 900     # Abuse penalty duration in seconds (15 minutes)
 RESPONSE_RATE_LIMIT = 1   # Max penalty messages per 2 minutes to prevent spam
 RESPONSE_RATE_WINDOW = 120  # Penalty message rate limit window (2 minutes)
+
+# Pre-compiled regex patterns for better performance
+RE_COLOR_FG_BG = re.compile(r'\x03\d\d,\d\d')  # fg,bg pair
+RE_COLOR_FG = re.compile(r'\x03\d\d')  # fg only
+RE_COLOR_END = re.compile(r'[\x1D\x03\x0f]')  # end of colour and italics
+RE_DICE_CMD = re.compile(r'^\d*d\d*$')  # dice command pattern
+RE_SPACE_COLOR = re.compile(r'^ [\x1D\x03\x0f]*')  # space and color codes
 
 # some lookup tables for formatting messages
 # these are not yet in conig.json
@@ -233,7 +239,8 @@ class DeathBotProtocol(irc.IRCClient):
         #...and the masters list
         if NICK not in MASTERS: MASTERS += [NICK]
     try:
-        password = open(PWFILE, "r").read().strip()
+        with open(PWFILE, "r") as f:
+            password = f.read().strip()
     except:
         password = "NotTHEPassword"
     #if TWIT:
@@ -283,7 +290,8 @@ class DeathBotProtocol(irc.IRCClient):
     livelogs  = {filepath.FilePath(FILEROOT+"tnnt/var/livelog"): ("tnnt", "\t")}
     # Scoreboard removed - JSON files deprecated
     try:
-        clanTag = json.load(open(CLANTAGJSON))
+        with open(CLANTAGJSON) as f:
+            clanTag = json.load(f)
     except:
         clanTag = {}
 
@@ -588,10 +596,10 @@ class DeathBotProtocol(irc.IRCClient):
 
     def stripText(self, msg):
         # strip the colour control stuff out
-        # This can probably all be done with a single RE but I have a headache.
-        message = re.sub(r'\x03\d\d,\d\d', '', msg) # fg,bg pair
-        message = re.sub(r'\x03\d\d', '', message) # fg only
-        message = re.sub(r'[\x1D\x03\x0f]', '', message) # end of colour and italics
+        # Use pre-compiled regex patterns for better performance
+        message = RE_COLOR_FG_BG.sub('', msg) # fg,bg pair
+        message = RE_COLOR_FG.sub('', message) # fg only
+        message = RE_COLOR_END.sub('', message) # end of colour and italics
         return message
 
     # Write log
@@ -983,21 +991,28 @@ class DeathBotProtocol(irc.IRCClient):
             rt //= 24
             stats["d"] = int(rt)
 
-        statmsg = time.strftime(periodStr[p]) + "Games: {games}, Asc: {ascend}, Scum: {scum}. ".format(**stats)
+        msg_parts = [time.strftime(periodStr[p]) + "Games: {games}, Asc: {ascend}, Scum: {scum}. ".format(**stats)]
+
         if stats["games"] != 0:
-            for stat1 in stat1lst:
-                statmsg += stat1.format(**stats)
+            # Add stat1 messages
+            msg_parts.extend([stat1.format(**stats) for stat1 in stat1lst])
+
+            # Add stat2 messages
+            stat2_parts = []
             for stat2 in stat2lst:
                 # Find whatever thing from the list above had the most games, and how many games it had
                 maxStat2 = dict(list(zip(["name","number"],max(iter(stats[stat2].items()), key=lambda x:x[1]))))
-                # Expand the Rog->Rogue, Fem->Female, etc
-                #maxStat2["name"] = dict(role.items() + race.items() + gender.items() + align.items()).get(maxStat2["name"],maxStat2["name"])
                 # convert number to % of total (non-scum) games
                 maxStat2["number"] = int(round(maxStat2["number"] * 100 / (stats["games"] - stats["scum"])))
+                stat2_parts.append("({number}%{name})".format(**maxStat2))
+            msg_parts.append(", ".join(stat2_parts) + ", ")
 
-                statmsg += "({number}%{name}), ".format(**maxStat2)
         if p != "full":
-            statmsg += "{days}d {hours:02d}:{minutes:02d} {prep}".format(**cd)
+            msg_parts.append("{days}d {hours:02d}:{minutes:02d} {prep}".format(**cd))
+
+        statmsg = "".join(msg_parts)
+        
+        if p != "full":
             for c in chanlist:
                 self.msgLog(c, statmsg)
         else:
@@ -1269,14 +1284,16 @@ class DeathBotProtocol(irc.IRCClient):
 
     # !players - respond to forwarded query and actually pull the info
     def getPlayers(self, master, sender, query, msgwords):
-        plrvar = ""
+        players = []
         for var in list(self.inprog.keys()):
             for inpdir in self.inprog[var]:
                 for inpfile in glob.iglob(inpdir + "*.ttyrec"):
                     # /stuff/crap/PLAYER:shit:garbage.ttyrec
                     # we want AFTER last '/', BEFORE 1st ':'
-                    plrvar += inpfile.split("/")[-1].split(":")[0] + " "
-        if len(plrvar) == 0:
+                    players.append(inpfile.split("/")[-1].split(":")[0])
+        if players:
+            plrvar = " ".join(players) + " "
+        else:
             plrvar = "No current players"
         response = "#R# " + query + " " + self.displaytag(SERVERTAG) + " " + plrvar
         self.msg(master, response)
@@ -1312,7 +1329,8 @@ class DeathBotProtocol(irc.IRCClient):
                             for wipath in glob.iglob(widir + "*.whereis"):
                                 if wipath.split("/")[-1].lower() == (msgwords[1] + ".whereis").lower():
                                     plr = wipath.split("/")[-1].split(".")[0] # Correct case
-                                    wirec = parse_xlogfile_line(open(wipath, "rb").read(),":")
+                                    with open(wipath, "rb") as f:
+                                        wirec = parse_xlogfile_line(f.read(),":")
 
                                     self.msg(master, "#R# " + query
                                              + " " + self.displaytag(SERVERTAG) + " " + plr
@@ -1364,23 +1382,29 @@ class DeathBotProtocol(irc.IRCClient):
             repl += "."
             self.msg(master,"#R# " + query + " " + repl)
             return
+        role_stats = []
+        race_stats = []
+        align_stats = []
+        gender_stats = []
+
         for role in NETHACK_ROLES:
              if role in self.asc[plr]:
                 totasc += self.asc[plr][role]
-                stats += " " + str(self.asc[plr][role]) + "x" + role
-        stats += ", "
+                role_stats.append(str(self.asc[plr][role]) + "x" + role)
+
         for race in NETHACK_RACES:
             if race in self.asc[plr]:
-                stats += " " + str(self.asc[plr][race]) + "x" + race
-        stats += ", "
+                race_stats.append(str(self.asc[plr][race]) + "x" + race)
+
         for alig in NETHACK_ALIGNS:
             if alig in self.asc[plr]:
-                stats += " " + str(self.asc[plr][alig]) + "x" + alig
-        stats += ", "
+                align_stats.append(str(self.asc[plr][alig]) + "x" + alig)
+
         for gend in NETHACK_GENDERS:
             if gend in self.asc[plr]:
-                stats += " " + str(self.asc[plr][gend]) + "x" + gend
-        stats += "."
+                gender_stats.append(str(self.asc[plr][gend]) + "x" + gend)
+
+        stats = " ".join(role_stats) + ", " + " ".join(race_stats) + ", " + " ".join(align_stats) + ", " + " ".join(gender_stats) + "."
         self.msg(master, "#R# " + query + " " + self.displaytag(SERVERTAG)
                          + " " + PLR
                          + " has ascended "
@@ -1417,23 +1441,28 @@ class DeathBotProtocol(irc.IRCClient):
             PLR = sender
         if not PLR: return # bogus input, handled by usage check.
         plr = PLR.lower()
-        reply = "#R# " + query + " "
         (lstart,lend,llength) = self.longstreak.get(plr,(0,0,0))
         (cstart,cend,clength) = self.curstreak.get(plr,(0,0,0))
+
+        reply_parts = ["#R#", query]
+
         if llength == 0:
-            reply += "No streaks for " + PLR + "."
+            reply = " ".join(reply_parts) + " No streaks for " + PLR + "."
             self.msg(master,reply)
             return
-        reply += self.displaytag(SERVERTAG) + " " + PLR
-        reply += " Max: " + str(llength) + " (" + self.streakDate(lstart) \
-                          + " - " + self.streakDate(lend) + ")"
+
+        reply_parts.extend([self.displaytag(SERVERTAG), PLR])
+        reply_parts.append("Max: {} ({} - {})".format(
+            llength, self.streakDate(lstart), self.streakDate(lend)))
+
         if clength > 0:
             if cstart == lstart:
-                reply += "(current)"
+                reply_parts.append("(current)")
             else:
-                reply += ". Current: " + str(clength) + " (since " \
-                                       + self.streakDate(cstart) + ")"
-        reply += "."
+                reply_parts.append(". Current: {} (since {})".format(
+                    clength, self.streakDate(cstart)))
+
+        reply = " ".join(reply_parts) + "."
         self.msg(master,reply)
         return
 
@@ -1475,7 +1504,7 @@ class DeathBotProtocol(irc.IRCClient):
             if (sender == DCBRIDGE):
                 message = message.partition("<")[2] #everything after the first <
                 sender,x,message = message.partition(">") #everything remaining before/after the first >
-                message = re.sub(r'^ [\x1D\x03\x0f]*', '', message) # everything after the first space and any colour codes
+                message = RE_SPACE_COLOR.sub('', message) # everything after the first space and any colour codes
                 if len(sender) == 0: return
         else: #private msg
             replyto = sender
@@ -1487,7 +1516,7 @@ class DeathBotProtocol(irc.IRCClient):
         else: # pop the '!'
             message = message[1:]
         msgwords = message.strip().split(" ")
-        if re.match(r'^\d*d\d*$', msgwords[0]):
+        if RE_DICE_CMD.match(msgwords[0]):
             self.rollDice(sender, replyto, msgwords)
             return
         if self.commands.get(msgwords[0].lower(), False):
