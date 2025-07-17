@@ -790,8 +790,8 @@ class DeathBotProtocol(irc.IRCClient):
             first_char = game["name"][0] if game["name"] else "a"
             s3_url = "{base}{first}/{name}/{path}".format(
                 base=s3_base,
-                first=first_char.lower(),
-                name=game["name"].lower(),
+                first=first_char,  # Keep original case for first character
+                name=game["name"],  # Keep original case for name
                 path=dumppath
             )
             return s3_url
