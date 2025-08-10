@@ -267,6 +267,8 @@ class DeathBotProtocol(irc.IRCClient):
     if not SLAVE:
         scoresURL = "https://tnnt.org/leaderboards or https://tnnt.org/trophies"
         ttyrecURL = f"{WEBROOT}nethack/ttyrecs"
+        dumplogURL = f"{WEBROOT}nethack/dumplogs"
+        irclogURL = f"{WEBROOT}nethack/irclogs/tnnt"
         rceditURL = f"{WEBROOT}nethack/rcedit"
         helpURL = f"{sourceURL}/blob/master/botuse.txt"
         logday = time.strftime("%d")
@@ -442,6 +444,8 @@ class DeathBotProtocol(irc.IRCClient):
                          "scores"   : self.doScoreboard,
                          "sb"       : self.doScoreboard,
                          "ttyrec"   : self.doTtyrec,
+                         "dumplog"  : self.doDumplog,
+                         "irclog"   : self.doIRClog,
                          "rcedit"   : self.doRCedit,
                          "commands" : self.doCommands,
                          "help"     : self.doHelp,
@@ -1157,6 +1161,12 @@ class DeathBotProtocol(irc.IRCClient):
     def doTtyrec(self, sender, replyto, msgwords):
         self.respond(replyto, sender, self.ttyrecURL )
 
+    def doDumplog(self, sender, replyto, msgwords):
+        self.respond(replyto, sender, self.dumplogURL )
+
+    def doIRClog(self, sender, replyto, msgwords):
+        self.respond(replyto, sender, self.irclogURL )
+
     def doRCedit(self, sender, replyto, msgwords):
         self.respond(replyto, sender, self.rceditURL )
 
@@ -1176,7 +1186,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.respond(replyto, sender, "Check the tournament clan rankings at: https://tnnt.org/clans")
 
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are: help ping time tell source lastgame lastasc asc streak rcedit scores sb score ttyrec clanscore clantag whereis players who commands status" )
+        self.respond(replyto, sender, "available commands are: $help $ping $time $tell $source $lastgame $lastasc $asc $streak $rcedit $scores $sb $score $ttyrec $dumplog $irclog $clanscore $clantag $whereis $players $who $commands $status" )
 
     def doStatus(self, sender, replyto, msgwords):
         if sender not in self.admin:
