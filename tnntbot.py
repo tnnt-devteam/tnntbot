@@ -56,6 +56,8 @@ import random   # for $rng and friends
 import glob     # for matching in $whereis
 import json     # for tournament scoreboard things
 import resource  # for memory usage in status command
+import requests  # for GitHub API
+import xml.etree.ElementTree as ET  # for parsing GitHub Atom feeds
 
 # command trigger - this should be in tnntbotconf - next time.
 TRIGGER = '$'
@@ -63,6 +65,13 @@ site.addsitedir('.')
 from tnntbotconf import HOST, PORT, CHANNELS, NICK, USERNAME, REALNAME, BOTDIR
 from tnntbotconf import PWFILE, FILEROOT, WEBROOT, LOGROOT, ADMIN, YEAR
 from tnntbotconf import SERVERTAG
+
+# GitHub configuration (optional)
+try:
+    from tnntbotconf import ENABLE_GITHUB, GITHUB_REPOS
+except ImportError:
+    ENABLE_GITHUB = False
+    GITHUB_REPOS = []
 try:
     from tnntbotconf import SPAMCHANNELS
 except ImportError:
@@ -424,6 +433,19 @@ class DeathBotProtocol(irc.IRCClient):
                 # Disable sync method for in-memory dict
                 self.tellbuf.sync = lambda: None
 
+    def _initializeGitHub(self):
+        """Initialize GitHub monitoring data structures."""
+        # For GitHub monitoring
+        self.seen_github_commits = {}  # repo -> set of commit IDs
+        self.github_initialized = False
+        self.github_repos = []
+        if ENABLE_GITHUB and GITHUB_REPOS:
+            self.github_repos = GITHUB_REPOS
+            # Initialize seen commits for each repo
+            for repo_config in self.github_repos:
+                repo_key = repo_config["repo"]
+                self.seen_github_commits[repo_key] = set()
+
     def _initializeRateLimiting(self):
         """Initialize rate limiting data structures."""
         self.rate_limits = {}  # user -> list of command timestamps
@@ -548,6 +570,11 @@ class DeathBotProtocol(irc.IRCClient):
         # in use when we signed on, but a 30-second looping call won't kill us
         self.looping_calls["nick"] = task.LoopingCall(self.nickCheck)
         self.looping_calls["nick"].start(NICK_CHECK_INTERVAL)
+        # Check GitHub for new commits (every minute)
+        if not SLAVE and ENABLE_GITHUB and self.github_repos:
+            self.looping_calls["github"] = task.LoopingCall(self.checkGitHub)
+            # Add initial delay to ensure bot is fully connected before first check
+            self.looping_calls["github"].start(60, now=False)  # 1 minute interval, don't run immediately
         # Trophy/achievement tracking removed - JSON files deprecated
         # Update local milestone summary to master every 5 minutes
         self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
@@ -612,6 +639,7 @@ class DeathBotProtocol(irc.IRCClient):
             self._initializeMilestones()
 
         self._initializeGameTracking()
+        self._initializeGitHub()
         self._initializeRateLimiting()
 
         self._initializeCommands()
@@ -1243,7 +1271,97 @@ class DeathBotProtocol(irc.IRCClient):
         if abuse_penalty_count > 0:
             status_parts.append(f"AbusePenalty: {abuse_penalty_count}")
 
+        # GitHub monitoring status
+        if hasattr(self, 'seen_github_commits') and not SLAVE and ENABLE_GITHUB:
+            if self.github_repos:
+                # Count total commits across all repos
+                total_commits = sum(len(commits) for commits in self.seen_github_commits.values())
+                repo_count = len(self.github_repos)
+                status_parts.append(f"GitHub: {total_commits} commits tracked across {repo_count} repos")
         self.respond(replyto, sender, " | ".join(status_parts))
+
+    # GitHub monitoring via Atom feed
+    def checkGitHub(self):
+        """Check GitHub repos for new commits via Atom feed and announce them"""
+        if SLAVE:
+            return  # Only master bot monitors GitHub
+        if not self.github_repos:
+            return  # GitHub monitoring not configured
+        for repo_config in self.github_repos:
+            self._checkGitHubRepo(repo_config)
+        # Mark as initialized only after ALL repos have been checked
+        if not self.github_initialized:
+            self.github_initialized = True
+
+    def _checkGitHubRepo(self, repo_config):
+        """Check a single GitHub repo for new commits"""
+        repo = repo_config["repo"]
+        branch = repo_config.get("branch", "master")
+        try:
+            # GitHub Atom feed for commits on specified branch
+            url = f"https://github.com/{repo}/commits/{branch}.atom"
+            headers = {"User-Agent": "TNNT IRC Bot/1.0"}
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code != 200:
+                print(f"GitHub Atom feed for {repo} returned status {r.status_code}")
+                return
+            # Parse the Atom feed
+            root = ET.fromstring(r.text)
+            # GitHub uses Atom format
+            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+            entries = root.findall('atom:entry', ns)
+            for entry in entries:
+                # Get commit details
+                title_elem = entry.find('atom:title', ns)
+                link_elem = entry.find('atom:link', ns)
+                id_elem = entry.find('atom:id', ns)
+                author_elem = entry.find('atom:author/atom:name', ns)
+                # Get commit ID from the id tag (format: tag:github.com,2008:Grit::Commit/SHA)
+                commit_id = None
+                if id_elem is not None and id_elem.text:
+                    # Extract SHA from the id
+                    parts = id_elem.text.split('/')
+                    if parts:
+                        commit_id = parts[-1]
+                # Extract commit details
+                title = title_elem.text if title_elem is not None else ""
+                link = link_elem.get('href') if link_elem is not None else ""
+                author = author_elem.text if author_elem is not None else "unknown"
+                # Check if we've seen this commit before for this repo
+                if commit_id and title and commit_id not in self.seen_github_commits[repo]:
+                    self.seen_github_commits[repo].add(commit_id)
+                    # Only announce if this is a recent check (not first run)
+                    if hasattr(self, "github_initialized") and self.github_initialized:
+                        # Sanitize title - remove format string placeholders
+                        title = sanitize_format_string(title)
+                        # Format message like botifico with IRC colors:
+                        # - 12 (Light Blue) for repository name
+                        # - 07 (Orange) for username
+                        # - 03 (Dark Green) for commit hash
+                        # - 13 (Pink/Magenta) for URLs
+                        repo_name = repo.split('/')[-1]  # Get repo name from owner/repo
+                        short_hash = commit_id[:7] if commit_id else "unknown"
+                        # Format: [RepoName] author hash - Commit message URL
+                        msg = f"[\x0312{repo_name}\x03] \x0307{author}\x03 \x0303{short_hash}\x03 - {title} \x0313{link}\x03"
+                        # Announce to channel
+                        for channel in CHANNELS:
+                            self.msg(channel, msg)
+                        # Debug log
+                        print(f"GitHub: New commit in {repo}: {commit_id[:7]} by {author}")
+            # Clean up old commits to prevent memory growth
+            # Keep only the 50 most recent commit IDs per repo
+            if len(self.seen_github_commits[repo]) > 50:
+                # Convert to list and keep newest 50
+                commit_list = list(self.seen_github_commits[repo])
+                self.seen_github_commits[repo] = set(commit_list[-50:])
+        except requests.exceptions.Timeout:
+            print(f"Timeout checking GitHub Atom feed for {repo}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching GitHub Atom feed for {repo}: {e}")
+        except ET.ParseError as e:
+            print(f"Error parsing GitHub Atom XML for {repo}: {e}")
+        except Exception as e:
+            print(f"Unexpected error checking GitHub: {e}")
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
