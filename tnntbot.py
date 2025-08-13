@@ -1324,8 +1324,10 @@ class DeathBotProtocol(irc.IRCClient):
                     if parts:
                         commit_id = parts[-1]
                 # Extract commit details
-                title = title_elem.text if title_elem is not None else ""
-                link = link_elem.get('href') if link_elem is not None else ""
+                title = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
+                # Replace newlines and excess whitespace with single spaces
+                title = ' '.join(title.split()) if title else ""
+                link = link_elem.get('href', '') if link_elem is not None else ""
                 author = author_elem.text if author_elem is not None else "unknown"
                 # Check if we've seen this commit before for this repo
                 if commit_id and title and commit_id not in self.seen_github_commits[repo]:
@@ -1343,9 +1345,9 @@ class DeathBotProtocol(irc.IRCClient):
                         short_hash = commit_id[:7] if commit_id else "unknown"
                         # Format: [RepoName] author hash - Commit message URL
                         msg = f"[\x0312{repo_name}\x03] \x0307{author}\x03 \x0303{short_hash}\x03 - {title} \x0313{link}\x03"
-                        # Announce to channel
-                        for channel in CHANNELS:
-                            self.msg(channel, msg)
+                        # Announce to spam channels (like game announcements)
+                        for channel in SPAMCHANNELS:
+                            self.msgLog(channel, msg)
                         # Debug log
                         print(f"GitHub: New commit in {repo}: {commit_id[:7]} by {author}")
             # Clean up old commits to prevent memory growth
