@@ -1287,8 +1287,18 @@ class DeathBotProtocol(irc.IRCClient):
             return  # Only master bot monitors GitHub
         if not self.github_repos:
             return  # GitHub monitoring not configured
+        all_new_commits = []  # Collect commits from all repos
         for repo_config in self.github_repos:
-            self._checkGitHubRepo(repo_config)
+            new_commits = self._checkGitHubRepo(repo_config)
+            all_new_commits.extend(new_commits)
+        # Announce all new commits with delays to prevent flood kicks
+        for i, (msg, repo, short_hash, author) in enumerate(all_new_commits):
+            # Schedule message with 0.5 second delay between each
+            delay = i * 0.5
+            for channel in SPAMCHANNELS:
+                reactor.callLater(delay, self.msgLog, channel, msg)
+            # Debug log
+            print(f"GitHub: New commit in {repo}: {short_hash} by {author} (delayed {delay}s)")
         # Mark as initialized only after ALL repos have been checked
         if not self.github_initialized:
             self.github_initialized = True
@@ -1297,6 +1307,7 @@ class DeathBotProtocol(irc.IRCClient):
         """Check a single GitHub repo for new commits"""
         repo = repo_config["repo"]
         branch = repo_config.get("branch", "master")
+        new_commits = []  # Collect new commits to return
         try:
             # GitHub Atom feed for commits on specified branch
             url = f"https://github.com/{repo}/commits/{branch}.atom"
@@ -1304,7 +1315,7 @@ class DeathBotProtocol(irc.IRCClient):
             r = requests.get(url, headers=headers, timeout=10)
             if r.status_code != 200:
                 print(f"GitHub Atom feed for {repo} returned status {r.status_code}")
-                return
+                return new_commits
             # Parse the Atom feed
             root = ET.fromstring(r.text)
             # GitHub uses Atom format
@@ -1345,25 +1356,27 @@ class DeathBotProtocol(irc.IRCClient):
                         short_hash = commit_id[:7] if commit_id else "unknown"
                         # Format: [RepoName] author hash - Commit message URL
                         msg = f"[\x0312{repo_name}\x03] \x0307{author}\x03 \x0303{short_hash}\x03 - {title} \x0313{link}\x03"
-                        # Announce to spam channels (like game announcements)
-                        for channel in SPAMCHANNELS:
-                            self.msgLog(channel, msg)
-                        # Debug log
-                        print(f"GitHub: New commit in {repo}: {commit_id[:7]} by {author}")
+                        # Add to list for return (msg, repo_name, short_hash, author)
+                        new_commits.append((msg, repo_name, short_hash, author))
             # Clean up old commits to prevent memory growth
             # Keep only the 50 most recent commit IDs per repo
             if len(self.seen_github_commits[repo]) > 50:
                 # Convert to list and keep newest 50
                 commit_list = list(self.seen_github_commits[repo])
                 self.seen_github_commits[repo] = set(commit_list[-50:])
+            return new_commits
         except requests.exceptions.Timeout:
             print(f"Timeout checking GitHub Atom feed for {repo}")
+            return new_commits
         except requests.exceptions.RequestException as e:
             print(f"Error fetching GitHub Atom feed for {repo}: {e}")
+            return new_commits
         except ET.ParseError as e:
             print(f"Error parsing GitHub Atom XML for {repo}: {e}")
+            return new_commits
         except Exception as e:
             print(f"Unexpected error checking GitHub: {e}")
+            return new_commits
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
