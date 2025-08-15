@@ -1293,8 +1293,8 @@ class DeathBotProtocol(irc.IRCClient):
             all_new_commits.extend(new_commits)
         # Announce all new commits with delays to prevent flood kicks
         for i, (msg, repo, short_hash, author) in enumerate(all_new_commits):
-            # Schedule message with 0.5 second delay between each
-            delay = i * 0.5
+            # Schedule message with one second delay between each
+            delay = i * 1.0
             for channel in SPAMCHANNELS:
                 reactor.callLater(delay, self.msgLog, channel, msg)
             # Debug log
