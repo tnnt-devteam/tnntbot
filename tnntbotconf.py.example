@@ -1,5 +1,6 @@
 # test 1
 # test 2
+# test 3
 # Instance-specific config for TNNT bot.
 # copy this to tnnt/botconf.py somewhere in your PYTHONPATH
 # place an empty __init__.py in the tnnt directory
