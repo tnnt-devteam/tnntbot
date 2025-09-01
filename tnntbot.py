@@ -72,6 +72,10 @@ try:
 except ImportError:
     ENABLE_GITHUB = False
     GITHUB_REPOS = []
+
+# TNNT API configuration
+TNNT_API_BASE = "http://127.0.0.1:8000/api"  # Use localhost for same server
+TNNT_API_HEADERS = {"Host": "tnnt.org"}  # Required for Django ALLOWED_HOSTS
 try:
     from tnntbotconf import SPAMCHANNELS
 except ImportError:
@@ -371,6 +375,36 @@ class DeathBotProtocol(irc.IRCClient):
         hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
         reactor.callLater(hourleft, self.startHourly)
 
+    def _scheduleAPIPolling(self):
+        """Schedule API polling to run every 10 minutes at :00:30, :10:30, :20:30, etc."""
+        # Do an initial fetch after 30 seconds to populate data quickly
+        reactor.callLater(30, self._initialAPIFetch)
+        
+        nowtime = datetime.now()
+        # Calculate next 10-minute mark
+        current_minute = nowtime.minute
+        minutes_to_next_10 = (10 - (current_minute % 10)) % 10
+        if minutes_to_next_10 == 0 and nowtime.second >= 30:
+            # If we're already past :X0:30, go to next 10-minute mark
+            minutes_to_next_10 = 10
+
+        # Calculate time until next :X0:30
+        next_poll = nowtime + timedelta(minutes=minutes_to_next_10)
+        next_poll = next_poll.replace(second=30, microsecond=0)
+        next_poll -= timedelta(minutes=next_poll.minute % 10)  # Ensure we're at :00, :10, :20, etc.
+
+        seconds_until_next = (next_poll - nowtime).total_seconds()
+        if seconds_until_next <= 0:
+            seconds_until_next += 600  # Add 10 minutes if somehow negative
+
+        print(f"TNNT API: Scheduling regular polling to start in {seconds_until_next:.1f} seconds (at {next_poll.strftime('%H:%M:%S')})")
+        reactor.callLater(seconds_until_next, self.startAPIPolling)
+    
+    def _initialAPIFetch(self):
+        """Do an initial API fetch to populate data quickly after startup"""
+        print("TNNT API: Performing initial data fetch...")
+        self.checkTNNTAPI()
+
     def _initializeMilestones(self):
         """Initialize milestone tracking for tournament announcements."""
         # round up of basic stats for milestone reporting.
@@ -445,6 +479,15 @@ class DeathBotProtocol(irc.IRCClient):
             for repo_config in self.github_repos:
                 repo_key = repo_config["repo"]
                 self.seen_github_commits[repo_key] = set()
+
+        # TNNT API monitoring for achievements/trophies/rankings
+        self.api_initialized = False
+        self.player_achievements = {}  # player -> set of achievement names
+        self.player_trophies = {}  # player -> set of trophy names
+        self.clan_trophies = {}  # clan -> set of trophy names
+        self.clan_rankings = {}  # clan -> rank position
+        self.player_scores = {}  # player -> {wins, total_games, ratio}
+        self.clan_scores = {}  # clan -> {wins, total_games, ratio}
 
     def _initializeRateLimiting(self):
         """Initialize rate limiting data structures."""
@@ -575,7 +618,9 @@ class DeathBotProtocol(irc.IRCClient):
             self.looping_calls["github"] = task.LoopingCall(self.checkGitHub)
             # Add initial delay to ensure bot is fully connected before first check
             self.looping_calls["github"].start(60, now=False)  # 1 minute interval, don't run immediately
-        # Trophy/achievement tracking removed - JSON files deprecated
+        # Schedule TNNT API polling for every 10 minutes at :00:30, :10:30, :20:30, etc.
+        if not SLAVE:
+            self._scheduleAPIPolling()
         # Update local milestone summary to master every 5 minutes
         self.looping_calls["summary"] = task.LoopingCall(self.updateSummary)
         self.looping_calls["summary"].start(SUMMARY_UPDATE_INTERVAL)
@@ -1143,6 +1188,14 @@ class DeathBotProtocol(irc.IRCClient):
         self.looping_calls["stats"] = task.LoopingCall(self.hourlyStats)
         self.looping_calls["stats"].start(SECONDS_PER_HOUR)
 
+    def startAPIPolling(self):
+        """Start the API polling loop - runs every 10 minutes from first scheduled time"""
+        # Run the first check
+        self.checkTNNTAPI()
+        # Schedule to run every 10 minutes from now on
+        self.looping_calls["api"] = task.LoopingCall(self.checkTNNTAPI)
+        self.looping_calls["api"].start(600)  # 600 seconds = 10 minutes
+
     # Countdown timer
     def countDown(self):
         cd = {}
@@ -1177,7 +1230,8 @@ class DeathBotProtocol(irc.IRCClient):
         verbs = { "start" : "begins",
                   "end" : "closes"
                 }
-        timeMsg += f"{YEAR} Tournament {verbs[timeLeft['event']]} in {timeLeft['days']}d {timeLeft['hours']:0>2}:{timeLeft['minutes']:0>2}:{timeLeft['seconds']:0>2}"
+        timeMsg += (f"{YEAR} Tournament {verbs[timeLeft['event']]} in {timeLeft['days']}d "
+                   f"{timeLeft['hours']:0>2}:{timeLeft['minutes']:0>2}:{timeLeft['seconds']:0>2}")
         self.respond(replyto, sender, timeMsg)
 
     def doSource(self, sender, replyto, msgwords):
@@ -1202,19 +1256,106 @@ class DeathBotProtocol(irc.IRCClient):
         self.respond(replyto, sender, self.helpURL )
 
     def doScore(self, sender, replyto, msgwords):
-        # Simplified - just return URL since JSON scoreboard is deprecated
-        self.respond(replyto, sender, f"Check the tournament scoreboard at: {self.scoresURL}")
+        # Check if player name provided
+        if len(msgwords) < 2:
+            # Show top 5 players if no name specified
+            if not self.player_scores:
+                self.respond(replyto, sender, f"Scoreboard data not yet loaded. Check: {self.scoresURL}")
+                return
+
+            # Sort players by wins then by name
+            sorted_players = sorted(self.player_scores.items(),
+                                  key=lambda x: (-x[1]["wins"], x[0]))[:5]
+
+            response = "Top 5 players: "
+            for i, (name, data) in enumerate(sorted_players, 1):
+                clan_text = f" ({data['clan']})" if data['clan'] else ""
+                response += f"#{i} {name}{clan_text}: {data['wins']} wins ({data['ratio']}) | "
+            response = response.rstrip(" | ")
+            self.respond(replyto, sender, response)
+        else:
+            # Look up specific player
+            player_name = " ".join(msgwords[1:])
+
+            if player_name not in self.player_scores:
+                # Try fetching directly from API if not in cache
+                try:
+                    r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/",
+                                   headers=TNNT_API_HEADERS, timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        clan_text = f" (clan: {data['clan']})" if data.get('clan') else ""
+                        response = (f"{player_name}{clan_text}: {data['wins']} wins out of "
+                                  f"{data['total_games']} games ({data['ratio']}) | Z-score: {data['zscore']}")
+                        self.respond(replyto, sender, response)
+                    else:
+                        self.respond(replyto, sender, f"Player '{player_name}' not found. Check: {self.scoresURL}")
+                except Exception:
+                    self.respond(replyto, sender, f"Error fetching player data. Check: {self.scoresURL}")
+            else:
+                # Use cached data
+                data = self.player_scores[player_name]
+                clan_text = f" (clan: {data['clan']})" if data['clan'] else ""
+
+                # Find player's rank
+                sorted_players = sorted(self.player_scores.items(),
+                                      key=lambda x: (-x[1]["wins"], x[0]))
+                rank = next((i for i, (n, _) in enumerate(sorted_players, 1) if n == player_name), "?")
+
+                response = f"#{rank} {player_name}{clan_text}: {data['wins']} wins out of {data['total_games']} games ({data['ratio']})"
+                self.respond(replyto, sender, response)
 
     def doClanTag(self, sender, replyto, msgwords):
         # ClanTag functionality removed - JSON scoreboard is deprecated
         self.respond(replyto, sender, f"Clan tags are no longer supported. Check the tournament scoreboard at: {self.scoresURL}")
 
     def doClanScore(self, sender, replyto, msgwords):
-        # Simplified - just return URL since JSON scoreboard is deprecated
-        self.respond(replyto, sender, "Check the tournament clan rankings at: https://tnnt.org/clans")
+        # Check if clan name provided
+        if len(msgwords) < 2:
+            # Show top 5 clans if no name specified
+            if not self.clan_scores:
+                self.respond(replyto, sender, "Clan data not yet loaded. Check: https://tnnt.org/clans")
+                return
+
+            # Sort clans by rank
+            sorted_clans = sorted(self.clan_scores.items(),
+                                key=lambda x: x[1]["rank"])[:5]
+
+            response = "Top 5 clans: "
+            for name, data in sorted_clans:
+                response += f"#{data['rank']} {name}: {data['wins']} wins ({data['ratio']}) | "
+            response = response.rstrip(" | ")
+            self.respond(replyto, sender, response)
+        else:
+            # Look up specific clan
+            clan_name = " ".join(msgwords[1:])
+
+            if clan_name not in self.clan_scores:
+                # Try fetching directly from API if not in cache
+                try:
+                    r = requests.get(f"{TNNT_API_BASE}/clans/{clan_name}/",
+                                   headers=TNNT_API_HEADERS, timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        member_count = len(data.get('members', []))
+                        response = (f"{clan_name}: {data['wins']} wins out of {data['total_games']} games "
+                                  f"({data['ratio']}) | Members: {member_count}")
+                        self.respond(replyto, sender, response)
+                    else:
+                        self.respond(replyto, sender, f"Clan '{clan_name}' not found. Check: https://tnnt.org/clans")
+                except Exception:
+                    self.respond(replyto, sender, "Error fetching clan data. Check: https://tnnt.org/clans")
+            else:
+                # Use cached data
+                data = self.clan_scores[clan_name]
+                response = f"#{data['rank']} {clan_name}: {data['wins']} wins out of {data['total_games']} games ({data['ratio']})"
+                self.respond(replyto, sender, response)
 
     def doCommands(self, sender, replyto, msgwords):
-        self.respond(replyto, sender, "available commands are: $help $ping $time $tell $source $lastgame $lastasc $asc $streak $rcedit $scores $sb $score $ttyrec $dumplog $irclog $clanscore $clantag $whereis $players $who $commands $status" )
+        commands_list = ("$help $ping $time $tell $source $lastgame $lastasc $asc $streak $rcedit "
+                        "$scores $sb $score $ttyrec $dumplog $irclog $clanscore $clantag $whereis "
+                        "$players $who $commands $status")
+        self.respond(replyto, sender, f"available commands are: {commands_list}")
 
     def doStatus(self, sender, replyto, msgwords):
         if sender not in self.admin:
@@ -1378,6 +1519,133 @@ class DeathBotProtocol(irc.IRCClient):
         except Exception as e:
             print(f"Unexpected error checking GitHub: {e}")
             return new_commits
+
+    # TNNT API monitoring for scoreboard functionality
+    def checkTNNTAPI(self):
+        """Check TNNT API for achievement/trophy/ranking changes"""
+        if SLAVE:
+            return  # Only master bot monitors API
+
+        try:
+            # Fetch current scoreboard data
+            r = requests.get(f"{TNNT_API_BASE}/scoreboard/", headers=TNNT_API_HEADERS, timeout=10)
+            if r.status_code != 200:
+                print(f"TNNT API scoreboard returned status {r.status_code}")
+                return
+
+            data = r.json()
+
+            # Process player data
+            for player_data in data.get("players", []):
+                player_name = player_data["name"]
+
+                # Store player scores for $score command
+                self.player_scores[player_name] = {
+                    "wins": player_data["wins"],
+                    "total_games": player_data["total_games"],
+                    "ratio": player_data["ratio"],
+                    "clan": player_data.get("clan", None)
+                }
+
+                # Check for new achievements (requires separate API call)
+                if self.api_initialized:
+                    self._checkPlayerAchievements(player_name)
+
+            # Process clan data and check for ranking changes
+            new_clan_rankings = {}
+            for idx, clan_data in enumerate(data.get("clans", []), 1):
+                clan_name = clan_data["name"]
+                new_clan_rankings[clan_name] = idx
+
+                # Store clan scores for $clanscore command
+                self.clan_scores[clan_name] = {
+                    "wins": clan_data["wins"],
+                    "total_games": clan_data["total_games"],
+                    "ratio": clan_data["ratio"],
+                    "rank": idx
+                }
+
+                # Check for ranking changes
+                if self.api_initialized and clan_name in self.clan_rankings:
+                    old_rank = self.clan_rankings[clan_name]
+                    if old_rank != idx:
+                        # Clan ranking changed!
+                        if idx < old_rank:
+                            # Improved ranking
+                            msg = f"[R] Clan {clan_name} moves UP to rank #{idx}!"
+                        else:
+                            # Dropped ranking
+                            msg = f"[R] Clan {clan_name} drops to rank #{idx}"
+
+                        for channel in SPAMCHANNELS:
+                            self.msgLog(channel, msg)
+                        print(f"TNNT API: Clan ranking change - {clan_name}: {old_rank} -> {idx}")
+
+            # Update stored rankings
+            self.clan_rankings = new_clan_rankings
+
+            # Mark as initialized after first successful fetch
+            if not self.api_initialized:
+                self.api_initialized = True
+                print(f"TNNT API: Initialized with {len(self.player_scores)} players and {len(self.clan_scores)} clans")
+
+        except requests.exceptions.Timeout:
+            print("Timeout checking TNNT API")
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching TNNT API: {e}")
+        except Exception as e:
+            print(f"Unexpected error checking TNNT API: {e}")
+
+    def _checkPlayerAchievements(self, player_name):
+        """Check for new achievements and trophies for a specific player"""
+        try:
+            # Fetch player details including trophies
+            r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/",
+                           headers=TNNT_API_HEADERS, timeout=10)
+            if r.status_code != 200:
+                return  # Player might not exist or API error
+
+            player_data = r.json()
+
+            # Check for new trophies
+            current_trophies = set(t["name"] for t in player_data.get("trophies", []))
+            if player_name in self.player_trophies:
+                new_trophies = current_trophies - self.player_trophies[player_name]
+                if new_trophies:
+                    for trophy in new_trophies:
+                        msg = f"[Tr] {player_name} earned the {trophy} trophy!"
+                        for channel in SPAMCHANNELS:
+                            self.msgLog(channel, msg)
+                        print(f"TNNT API: New trophy - {player_name}: {trophy}")
+            self.player_trophies[player_name] = current_trophies
+
+            # Fetch achievements
+            r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/achievements/",
+                           headers=TNNT_API_HEADERS, timeout=10)
+            if r.status_code != 200:
+                return
+
+            achievements = r.json()
+            current_achievements = set(a["name"] for a in achievements)
+
+            if player_name in self.player_achievements:
+                new_achievements = current_achievements - self.player_achievements[player_name]
+                if new_achievements:
+                    count = len(new_achievements)
+                    if count == 1:
+                        msg = f"[Ac] {player_name} just earned a new achievement: {list(new_achievements)[0]}"
+                    else:
+                        msg = f"[Ac] {player_name} just earned {count} new achievements!"
+
+                    for channel in SPAMCHANNELS:
+                        self.msgLog(channel, msg)
+                    print(f"TNNT API: New achievements - {player_name}: {new_achievements}")
+
+            self.player_achievements[player_name] = current_achievements
+
+        except Exception as e:
+            # Silently ignore individual player errors to not spam logs
+            pass
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
@@ -1783,7 +2051,9 @@ class DeathBotProtocol(irc.IRCClient):
                     # Provide specific error message based on penalty type
                     if hasattr(self, 'abuse_penalties') and sender_host in self.abuse_penalties:
                         remaining = int(self.abuse_penalties[sender_host] - time.time())
-                        self.respond(replyto, sender, "Abuse penalty active: {}m {}s remaining. (Triggered by spamming consecutive commands)".format(remaining//60, remaining%60))
+                        msg = (f"Abuse penalty active: {remaining//60}m {remaining%60}s remaining. "
+                               "(Triggered by spamming consecutive commands)")
+                        self.respond(replyto, sender, msg)
                     else:
                         self.respond(replyto, sender, f"Rate limit exceeded. Please wait before using {TRIGGER}{command} again.")
                     return
