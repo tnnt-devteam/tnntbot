@@ -1321,7 +1321,8 @@ class DeathBotProtocol(irc.IRCClient):
             # GitHub uses Atom format
             ns = {'atom': 'http://www.w3.org/2005/Atom'}
             entries = root.findall('atom:entry', ns)
-            for entry in entries:
+            # Reverse entries to process oldest first (Atom feed is newest first)
+            for entry in reversed(entries):
                 # Get commit details
                 title_elem = entry.find('atom:title', ns)
                 link_elem = entry.find('atom:link', ns)
