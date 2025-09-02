@@ -46,6 +46,10 @@ GITHUB_REPOS = [
     # Add more repositories here as needed
 ]
 
+# TNNT API Settings
+# Set to False during tournament to suppress re-announcements after database rebuilds
+ANNOUNCE_AFTER_DB_REBUILD = True
+
 # people allowed to do certain admin things.
 # This is not terribly secure, as it does not verify the nick is authenticated. 
 ADMIN = ["K2", "Tangles"]

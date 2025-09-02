@@ -92,6 +92,11 @@ try:
     from tnntbotconf import GRACEDAYS
 except ImportError:
     GRACEDAYS = 5
+
+try:
+    from tnntbotconf import ANNOUNCE_AFTER_DB_REBUILD
+except ImportError:
+    ANNOUNCE_AFTER_DB_REBUILD = True  # Default to announcing for backwards compatibility
 try:
     from tnntbotconf import REMOTES
 except ImportError:
@@ -488,6 +493,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.clan_rankings = {}  # clan -> rank position
         self.player_scores = {}  # player -> {wins, total_games, ratio}
         self.clan_scores = {}  # clan -> {wins, total_games, ratio}
+        self.recently_cleared_players = set()  # Players cleared due to database wipe
 
     def _initializeRateLimiting(self):
         """Initialize rate limiting data structures."""
@@ -1535,9 +1541,16 @@ class DeathBotProtocol(irc.IRCClient):
 
             data = r.json()
 
+            # Collect all announcements to send with delays
+            all_announcements = []
+
+            # Track current players to detect removals
+            current_players = set()
+
             # Process player data
             for player_data in data.get("players", []):
                 player_name = player_data["name"]
+                current_players.add(player_name)
 
                 # Store player scores for $score command
                 self.player_scores[player_name] = {
@@ -1548,8 +1561,22 @@ class DeathBotProtocol(irc.IRCClient):
                 }
 
                 # Check for new achievements (requires separate API call)
+                player_announcements = self._checkPlayerAchievements(player_name)
                 if self.api_initialized:
-                    self._checkPlayerAchievements(player_name)
+                    all_announcements.extend(player_announcements)
+
+            # Clear data for players no longer in scoreboard (e.g., after database wipe)
+            if self.api_initialized:
+                removed_players = set(self.player_achievements.keys()) - current_players
+                if removed_players:
+                    print(f"TNNT API: {len(removed_players)} players no longer in scoreboard, marking as cleared")
+                    # Track these players as recently cleared so we can announce when they return
+                    self.recently_cleared_players.update(removed_players)
+                    # Clear the stored data
+                    for player_name in removed_players:
+                        self.player_achievements.pop(player_name, None)
+                        self.player_trophies.pop(player_name, None)
+                        self.player_scores.pop(player_name, None)
 
             # Process clan data and check for ranking changes
             new_clan_rankings = {}
@@ -1578,12 +1605,22 @@ class DeathBotProtocol(irc.IRCClient):
                             # Dropped ranking
                             msg = f"[{self.displaystring['clan']}] Clan {clan_name} drops to position #{idx}."
 
-                        for channel in SPAMCHANNELS:
-                            self.msgLog(channel, msg)
+                        all_announcements.append((msg, "clan", clan_name, f"{old_rank}->{idx}"))
                         print(f"TNNT API: Clan ranking change - {clan_name}: {old_rank} -> {idx}")
 
             # Update stored rankings
             self.clan_rankings = new_clan_rankings
+
+            # Send all announcements with delays to prevent flood kicks
+            for i, announcement in enumerate(all_announcements):
+                msg = announcement[0]
+                # Schedule message with 1 second delay between each
+                delay = i * 1.0
+                for channel in SPAMCHANNELS:
+                    reactor.callLater(delay, self.msgLog, channel, msg)
+                # Debug log
+                if len(announcement) >= 3:
+                    print(f"TNNT API: Scheduling announcement #{i+1} (delay {delay}s): {announcement[1]} - {announcement[2]}")
 
             # Mark as initialized after first successful fetch
             if not self.api_initialized:
@@ -1598,37 +1635,53 @@ class DeathBotProtocol(irc.IRCClient):
             print(f"Unexpected error checking TNNT API: {e}")
 
     def _checkPlayerAchievements(self, player_name):
-        """Check for new achievements and trophies for a specific player"""
+        """Check for new achievements and trophies for a specific player
+        Returns a list of announcement tuples (message, type, player, details)
+        """
+        announcements = []
         try:
             # Fetch player details including trophies
             r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/",
                            headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
-                return  # Player might not exist or API error
+                return announcements  # Player might not exist or API error
 
             player_data = r.json()
 
+            # Check if this player was recently cleared (database rebuild scenario)
+            was_recently_cleared = player_name in self.recently_cleared_players
+            if was_recently_cleared:
+                print(f"TNNT API: Player {player_name} returned after being cleared")
+                self.recently_cleared_players.discard(player_name)
+                # Check if we should suppress announcements for database rebuilds
+                if not ANNOUNCE_AFTER_DB_REBUILD:
+                    print(f"TNNT API: Suppressing re-announcements for {player_name} (ANNOUNCE_AFTER_DB_REBUILD=False)")
+
             # Check for new trophies
             current_trophies = set(t["name"] for t in player_data.get("trophies", []))
-            if player_name in self.player_trophies:
-                new_trophies = current_trophies - self.player_trophies[player_name]
+            # Announce if: player was tracked before OR (was recently cleared with trophies AND announcements enabled)
+            if player_name in self.player_trophies or (was_recently_cleared and current_trophies and ANNOUNCE_AFTER_DB_REBUILD):
+                if player_name in self.player_trophies:
+                    new_trophies = current_trophies - self.player_trophies[player_name]
+                else:
+                    # Player was cleared, treat all trophies as new (only if ANNOUNCE_AFTER_DB_REBUILD is True)
+                    new_trophies = current_trophies
                 if new_trophies:
                     count = len(new_trophies)
                     trophy_list = list(new_trophies)
 
                     if count == 1:
-                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}!"
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}."
                     elif count == 2:
-                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]} and {trophy_list[1]}!"
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]} and {trophy_list[1]}."
                     elif count == 3:
-                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}, {trophy_list[1]}, and {trophy_list[2]}!"
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}, {trophy_list[1]}, and {trophy_list[2]}."
                     elif count == 4:
-                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}, {trophy_list[1]}, {trophy_list[2]}, and {trophy_list[3]}!"
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}, {trophy_list[1]}, {trophy_list[2]}, and {trophy_list[3]}."
                     else:
-                        msg = f"[{self.displaystring['trophy']}] {player_name} earned {count} new trophies!"
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {count} new trophies."
 
-                    for channel in SPAMCHANNELS:
-                        self.msgLog(channel, msg)
+                    announcements.append((msg, "trophy", player_name, str(new_trophies)))
                     print(f"TNNT API: New trophies - {player_name}: {new_trophies}")
             self.player_trophies[player_name] = current_trophies
 
@@ -1636,30 +1689,34 @@ class DeathBotProtocol(irc.IRCClient):
             r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/achievements/",
                            headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
-                return
+                return announcements
 
             achievements = r.json()
             current_achievements = set(a["name"] for a in achievements)
 
-            if player_name in self.player_achievements:
-                new_achievements = current_achievements - self.player_achievements[player_name]
+            # Announce if: player was tracked before OR (was recently cleared with achievements AND announcements enabled)
+            if player_name in self.player_achievements or (was_recently_cleared and current_achievements and ANNOUNCE_AFTER_DB_REBUILD):
+                if player_name in self.player_achievements:
+                    new_achievements = current_achievements - self.player_achievements[player_name]
+                else:
+                    # Player was cleared, treat all achievements as new (only if ANNOUNCE_AFTER_DB_REBUILD is True)
+                    new_achievements = current_achievements
                 if new_achievements:
                     count = len(new_achievements)
                     achievement_list = list(new_achievements)
 
                     if count == 1:
-                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}!"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}."
                     elif count == 2:
-                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]} and {achievement_list[1]}!"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]} and {achievement_list[1]}."
                     elif count == 3:
-                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}, {achievement_list[1]}, and {achievement_list[2]}!"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}, {achievement_list[1]}, and {achievement_list[2]}."
                     elif count == 4:
-                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}, {achievement_list[1]}, {achievement_list[2]}, and {achievement_list[3]}!"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}, {achievement_list[1]}, {achievement_list[2]}, and {achievement_list[3]}."
                     else:
-                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {count} new achievements!"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {count} new achievements."
 
-                    for channel in SPAMCHANNELS:
-                        self.msgLog(channel, msg)
+                    announcements.append((msg, "achievement", player_name, str(new_achievements)))
                     print(f"TNNT API: New achievements - {player_name}: {new_achievements}")
 
             self.player_achievements[player_name] = current_achievements
@@ -1667,6 +1724,8 @@ class DeathBotProtocol(irc.IRCClient):
         except Exception as e:
             # Silently ignore individual player errors to not spam logs
             pass
+
+        return announcements
 
     def takeMessage(self, sender, replyto, msgwords):
         if len(msgwords) < 3:
