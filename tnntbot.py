@@ -1572,10 +1572,11 @@ class DeathBotProtocol(irc.IRCClient):
                         # Clan ranking changed!
                         if idx < old_rank:
                             # Improved ranking
-                            msg = f"[R] Clan {clan_name} moves UP to rank #{idx}!"
+                            ascensions = clan_data["wins"]
+                            msg = f"[{self.displaystring['clan']}] Clan {clan_name} moves up to position #{idx} with {ascensions} ascensions."
                         else:
                             # Dropped ranking
-                            msg = f"[R] Clan {clan_name} drops to rank #{idx}"
+                            msg = f"[{self.displaystring['clan']}] Clan {clan_name} drops to position #{idx}."
 
                         for channel in SPAMCHANNELS:
                             self.msgLog(channel, msg)
@@ -1612,11 +1613,23 @@ class DeathBotProtocol(irc.IRCClient):
             if player_name in self.player_trophies:
                 new_trophies = current_trophies - self.player_trophies[player_name]
                 if new_trophies:
-                    for trophy in new_trophies:
-                        msg = f"[Tr] {player_name} earned the {trophy} trophy!"
-                        for channel in SPAMCHANNELS:
-                            self.msgLog(channel, msg)
-                        print(f"TNNT API: New trophy - {player_name}: {trophy}")
+                    count = len(new_trophies)
+                    trophy_list = list(new_trophies)
+
+                    if count == 1:
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}!"
+                    elif count == 2:
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]} and {trophy_list[1]}!"
+                    elif count == 3:
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}, {trophy_list[1]}, and {trophy_list[2]}!"
+                    elif count == 4:
+                        msg = f"[{self.displaystring['trophy']}] {player_name} now has {trophy_list[0]}, {trophy_list[1]}, {trophy_list[2]}, and {trophy_list[3]}!"
+                    else:
+                        msg = f"[{self.displaystring['trophy']}] {player_name} earned {count} new trophies!"
+
+                    for channel in SPAMCHANNELS:
+                        self.msgLog(channel, msg)
+                    print(f"TNNT API: New trophies - {player_name}: {new_trophies}")
             self.player_trophies[player_name] = current_trophies
 
             # Fetch achievements
@@ -1632,10 +1645,18 @@ class DeathBotProtocol(irc.IRCClient):
                 new_achievements = current_achievements - self.player_achievements[player_name]
                 if new_achievements:
                     count = len(new_achievements)
+                    achievement_list = list(new_achievements)
+
                     if count == 1:
-                        msg = f"[Ac] {player_name} just earned a new achievement: {list(new_achievements)[0]}"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}!"
+                    elif count == 2:
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]} and {achievement_list[1]}!"
+                    elif count == 3:
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}, {achievement_list[1]}, and {achievement_list[2]}!"
+                    elif count == 4:
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {achievement_list[0]}, {achievement_list[1]}, {achievement_list[2]}, and {achievement_list[3]}!"
                     else:
-                        msg = f"[Ac] {player_name} just earned {count} new achievements!"
+                        msg = f"[{self.displaystring['achieve']}] {player_name} just earned {count} new achievements!"
 
                     for channel in SPAMCHANNELS:
                         self.msgLog(channel, msg)
