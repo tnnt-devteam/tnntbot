@@ -155,6 +155,18 @@ RE_COLOR_END = re.compile(r'[\x1D\x03\x0f]')  # end of colour and italics
 RE_DICE_CMD = re.compile(r'^\d*d\d*$')  # dice command pattern
 RE_SPACE_COLOR = re.compile(r'^ [\x1D\x03\x0f]*')  # space and color codes
 
+# Custom dict class for shelve fallback
+class DictWithSync(dict):
+    """Dict subclass that supports sync() method for shelve compatibility.
+
+    When the shelve database fails to open, we fall back to an in-memory
+    dict. This class provides a no-op sync() method so the same code can
+    work with both shelve objects and the in-memory fallback.
+    """
+    def sync(self):
+        """No-op sync method for in-memory dict fallback."""
+        pass
+
 # some lookup tables for formatting messages
 # these are not yet in conig.json
 role = { "Arc": "Archeologist",
@@ -384,7 +396,7 @@ class DeathBotProtocol(irc.IRCClient):
         """Schedule API polling to run every 10 minutes at :00:30, :10:30, :20:30, etc."""
         # Do an initial fetch after 30 seconds to populate data quickly
         reactor.callLater(30, self._initialAPIFetch)
-        
+
         nowtime = datetime.now()
         # Calculate next 10-minute mark
         current_minute = nowtime.minute
@@ -404,7 +416,7 @@ class DeathBotProtocol(irc.IRCClient):
 
         print(f"TNNT API: Scheduling regular polling to start in {seconds_until_next:.1f} seconds (at {next_poll.strftime('%H:%M:%S')})")
         reactor.callLater(seconds_until_next, self.startAPIPolling)
-    
+
     def _initialAPIFetch(self):
         """Do an initial API fetch to populate data quickly after startup"""
         print("TNNT API: Performing initial data fetch...")
@@ -468,9 +480,7 @@ class DeathBotProtocol(irc.IRCClient):
             except Exception as e2:
                 print(f"Error: Could not open tell message database: {e2}")
                 # Create an in-memory fallback so bot doesn't crash
-                self.tellbuf = {}
-                # Disable sync method for in-memory dict
-                self.tellbuf.sync = lambda: None
+                self.tellbuf = DictWithSync()
 
     def _initializeGitHub(self):
         """Initialize GitHub monitoring data structures."""
@@ -697,7 +707,6 @@ class DeathBotProtocol(irc.IRCClient):
 
         self._initializeLogReading()
         self._startMonitoringTasks()
-
 
     def nickCheck(self):
         # also rejoin the channel here, in case we drop off for any reason
@@ -1080,7 +1089,6 @@ class DeathBotProtocol(irc.IRCClient):
                         self.announce(f"\x02TOURNAMENT MILESTONE:\x0f {numbers.get(m,m)} {statnames.get(k,k)}.")
             self.summary[k] = t
 
-
     # Hourly/daily/special stats
     def spamStats(self, p, stats, replyto):
         # formatting awkwardness
@@ -1220,7 +1228,6 @@ class DeathBotProtocol(irc.IRCClient):
         return cd
 
     # Trophy/achievement/scoreboard methods removed - JSON files deprecated
-
 
     # implement commands here
     def doPing(self, sender, replyto, msgwords):
@@ -2193,7 +2200,6 @@ class DeathBotProtocol(irc.IRCClient):
     def topicUpdated(self, user, channel, newTopic):
         user = user.split('!')[0]
         self.log(channel, "-!- " + user + " changed the topic on " + channel + " to: " + newTopic)
-
 
     ### Xlog/livelog event processing
     def startscummed(self, game):
