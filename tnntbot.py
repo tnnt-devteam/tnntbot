@@ -1623,8 +1623,8 @@ class DeathBotProtocol(irc.IRCClient):
                 msg = announcement[0]
                 # Schedule message with 1 second delay between each
                 delay = i * 1.0
-                for channel in SPAMCHANNELS:
-                    reactor.callLater(delay, self.msgLog, channel, msg)
+                # Use announce() method which includes tournament time check
+                reactor.callLater(delay, self.announce, msg, True)
                 # Debug log
                 if len(announcement) >= 3:
                     print(f"TNNT API: Scheduling announcement #{i+1} (delay {delay}s): {announcement[1]} - {announcement[2]}")
