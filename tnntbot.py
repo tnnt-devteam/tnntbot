@@ -787,11 +787,22 @@ class DeathBotProtocol(irc.IRCClient):
     # Tournament announcements typically go to the channel
     # ...and to the channel log
     # spam flag allows more verbosity in some channels
-    def announce(self, message, spam = False):
+    def announce(self, message, spam = False, strict_tournament_time = False, early_start_hours = 0):
         if not TEST:
-            # Only announce during tournament, or short grace period following
+            # Check if we should announce based on tournament timing
             nowtime = datetime.now()
-            game_on =  (nowtime > self.ttime["start"]) and (nowtime < (self.ttime["end"] + timedelta(days=GRACEDAYS)))
+            # Calculate effective start time (may be earlier for clan registrations)
+            effective_start = self.ttime["start"] - timedelta(hours=early_start_hours)
+
+            if strict_tournament_time:
+                # Strict mode: only during official tournament (no grace period)
+                # Used for API announcements (achievements, trophies, clan rankings)
+                # Can start early if early_start_hours is specified (for clan registrations)
+                game_on = (nowtime > effective_start) and (nowtime < self.ttime["end"])
+            else:
+                # Normal mode: tournament plus grace period
+                # Used for game events (deaths, ascensions)
+                game_on = (nowtime > effective_start) and (nowtime < (self.ttime["end"] + timedelta(days=GRACEDAYS)))
             if not game_on: return
         chanlist = CHANNELS
         if spam:
@@ -1622,8 +1633,15 @@ class DeathBotProtocol(irc.IRCClient):
                     "rank": idx
                 }
 
+                # Check for new clan registration
+                if self.api_initialized and clan_name not in self.clan_rankings:
+                    # New clan registered!
+                    msg = f"[{self.displaystring['clan']}] New clan registered - {clan_name}!"
+                    all_announcements.append((msg, "clan", clan_name, "new"))
+                    print(f"TNNT API: New clan registered - {clan_name}")
+
                 # Check for ranking changes
-                if self.api_initialized and clan_name in self.clan_rankings:
+                elif self.api_initialized and clan_name in self.clan_rankings:
                     old_rank = self.clan_rankings[clan_name]
                     if old_rank != idx:
                         # Clan ranking changed!
@@ -1646,8 +1664,11 @@ class DeathBotProtocol(irc.IRCClient):
                 msg = announcement[0]
                 # Schedule message with 1 second delay between each
                 delay = i * 1.0
-                # Use announce() method which includes tournament time check
-                reactor.callLater(delay, self.announce, msg, True)
+                # Check if this is a clan registration announcement (starts 24 hours early)
+                is_clan_registration = len(announcement) >= 4 and announcement[3] == "new"
+                early_hours = 24 if is_clan_registration else 0
+                # Use announce() method with strict tournament time (no grace period for API events)
+                reactor.callLater(delay, self.announce, msg, True, True, early_hours)
                 # Debug log
                 if len(announcement) >= 3:
                     print(f"TNNT API: Scheduling announcement #{i+1} (delay {delay}s): {announcement[1]} - {announcement[2]}")
