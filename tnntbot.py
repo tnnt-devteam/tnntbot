@@ -300,7 +300,7 @@ class DeathBotProtocol(irc.IRCClient):
         dumplogURL = f"{WEBROOT}nethack/dumplogs"
         irclogURL = f"{WEBROOT}nethack/irclogs/tnnt"
         rceditURL = f"{WEBROOT}nethack/rcedit"
-        helpURL = f"{sourceURL}/blob/master/botuse.txt"
+        helpURL = f"{sourceURL}/blob/main/botuse.md"
         logday = time.strftime("%d")
         for c in CHANNELS:
             activity[c] = 0
