@@ -281,6 +281,29 @@ class DeathBotProtocol(irc.IRCClient):
     versionNum = "0.1"
     # bot_start_time will be set in signedOn() for accurate uptime tracking
 
+    # Croesus reaction messages (bot speaks AS Croesus)
+    croesus_player_wins = [
+        "{player} has defeated me! How dare you!",
+        "{player} strikes me down. I'll remember this...",
+        "Well done, {player}. You've bested me!",
+        "{player} has proven stronger than me!",
+        "I fall before {player}!",
+        "Impressive, {player}. I didn't stand a chance.",
+        "{player} loots my vault and walks away victorious!",
+        "I have been slain by {player}. Brutal!",
+    ]
+
+    croesus_croesus_wins = [
+        "I claim {player}! Muahahaha!",
+        "I have been avenged! RIP {player}.",
+        "{player} learned not to mess with me the hard way.",
+        "{player} underestimated me. Fatal mistake.",
+        "I defend my vault from {player}!",
+        "{player} won't be stealing from me today... or ever.",
+        "Another greedy adventurer falls to me. RIP {player}.",
+        "I add {player} to my collection of failed thieves.",
+    ]
+
     dump_url_prefix = f"{WEBROOT}userdata/{{name[0]}}/{{name}}/"
     dump_file_prefix = f"{FILEROOT}dgldir/userdata/{{name[0]}}/{{name}}/"
 
@@ -2320,6 +2343,10 @@ class DeathBotProtocol(irc.IRCClient):
         yield (END + ": {name} ({role} {race} {gender} {align}), "
                    "{points} points, {turns} turns, {death}{shortsuff}{ascsuff}").format(**game)
 
+        # Special reaction if player was killed by the bot's namesake
+        if "Croesus" in game.get("death", ""):
+            yield random.choice(self.croesus_croesus_wins).format(player=game.get("name", "Someone"))
+
     def livelogReport(self, event):
         if event.get("charname", False):
             if event.get("player", False):
@@ -2351,9 +2378,15 @@ class DeathBotProtocol(irc.IRCClient):
         elif "killed_uniq" in event:
             yield ("{player} ({role} {race} {gender} {align}) "
                    "killed {killed_uniq}, on T:{turns}").format(**event)
+            # Special reaction if the bot's namesake is killed
+            if event.get("killed_uniq") == "Croesus":
+                yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         elif "defeated" in event: # fourk uses this instead of killed_uniq.
             yield ("{player} ({role} {race} {gender} {align}) "
                    "defeated {defeated}, on T:{turns}").format(**event)
+            # Special reaction if the bot's namesake is defeated
+            if event.get("defeated") == "Croesus":
+                yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         # more 1.3d shite
         elif "genocided_monster" in event:
             if event.get("dungeon_wide","yes") == "yes":
