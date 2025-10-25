@@ -1635,8 +1635,8 @@ class DeathBotProtocol(irc.IRCClient):
 
                 # Check for new clan registration
                 if self.api_initialized and clan_name not in self.clan_rankings:
-                    # New clan registered!
-                    msg = f"[{self.displaystring['clan']}] New clan registered - {clan_name}!"
+                    # New clan registered
+                    msg = f"[{self.displaystring['clan']}] New clan registered - {clan_name}"
                     all_announcements.append((msg, "clan", clan_name, "new"))
                     print(f"TNNT API: New clan registered - {clan_name}")
 
@@ -1946,7 +1946,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     # !players callback. Actually print the output.
     def outPlayers(self,q):
-        outmsg = " | ".join(list(q["resp"].values()))
+        outmsg = " :: ".join(list(q["resp"].values()))
         self.respond(q["replyto"],q["sender"],outmsg)
 
     def usageWhereIs(self, sender, replyto, msgwords):
