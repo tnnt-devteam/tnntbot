@@ -416,26 +416,26 @@ class DeathBotProtocol(irc.IRCClient):
         reactor.callLater(hourleft, self.startHourly)
 
     def _scheduleAPIPolling(self):
-        """Schedule API polling to run every 10 minutes at :00:30, :10:30, :20:30, etc."""
+        """Schedule API polling to run every 5 minutes at :00:30, :05:30, :10:30, :15:30, etc."""
         # Do an initial fetch after 30 seconds to populate data quickly
         reactor.callLater(30, self._initialAPIFetch)
 
         nowtime = datetime.now()
-        # Calculate next 10-minute mark
+        # Calculate next 5-minute mark
         current_minute = nowtime.minute
-        minutes_to_next_10 = (10 - (current_minute % 10)) % 10
-        if minutes_to_next_10 == 0 and nowtime.second >= 30:
-            # If we're already past :X0:30, go to next 10-minute mark
-            minutes_to_next_10 = 10
+        minutes_to_next_5 = (5 - (current_minute % 5)) % 5
+        if minutes_to_next_5 == 0 and nowtime.second >= 30:
+            # If we're already past :X5:30, go to next 5-minute mark
+            minutes_to_next_5 = 5
 
-        # Calculate time until next :X0:30
-        next_poll = nowtime + timedelta(minutes=minutes_to_next_10)
+        # Calculate time until next :X5:30
+        next_poll = nowtime + timedelta(minutes=minutes_to_next_5)
         next_poll = next_poll.replace(second=30, microsecond=0)
-        next_poll -= timedelta(minutes=next_poll.minute % 10)  # Ensure we're at :00, :10, :20, etc.
+        next_poll -= timedelta(minutes=next_poll.minute % 5)  # Ensure we're at :00, :05, :10, :15, etc.
 
         seconds_until_next = (next_poll - nowtime).total_seconds()
         if seconds_until_next <= 0:
-            seconds_until_next += 600  # Add 10 minutes if somehow negative
+            seconds_until_next += 300  # Add 5 minutes if somehow negative
 
         print(f"TNNT API: Scheduling regular polling to start in {seconds_until_next:.1f} seconds (at {next_poll.strftime('%H:%M:%S')})")
         reactor.callLater(seconds_until_next, self.startAPIPolling)
@@ -657,7 +657,7 @@ class DeathBotProtocol(irc.IRCClient):
             self.looping_calls["github"] = task.LoopingCall(self.checkGitHub)
             # Add initial delay to ensure bot is fully connected before first check
             self.looping_calls["github"].start(60, now=False)  # 1 minute interval, don't run immediately
-        # Schedule TNNT API polling for every 10 minutes at :00:30, :10:30, :20:30, etc.
+        # Schedule TNNT API polling for every 5 minutes at :00:30, :05:30, :10:30, :15:30, etc.
         if not SLAVE:
             self._scheduleAPIPolling()
         # Update local milestone summary to master every 5 minutes
@@ -1237,12 +1237,12 @@ class DeathBotProtocol(irc.IRCClient):
         self.looping_calls["stats"].start(SECONDS_PER_HOUR)
 
     def startAPIPolling(self):
-        """Start the API polling loop - runs every 10 minutes from first scheduled time"""
+        """Start the API polling loop - runs every 5 minutes from first scheduled time"""
         # Run the first check
         self.checkTNNTAPI()
-        # Schedule to run every 10 minutes from now on
+        # Schedule to run every 5 minutes from now on
         self.looping_calls["api"] = task.LoopingCall(self.checkTNNTAPI)
-        self.looping_calls["api"].start(600)  # 600 seconds = 10 minutes
+        self.looping_calls["api"].start(300)  # 300 seconds = 5 minutes
 
     # Countdown timer
     def countDown(self):

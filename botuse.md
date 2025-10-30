@@ -4,7 +4,7 @@ This is the TNNT IRC bot. Code is based on Beholder of #hardfought.
 
 Currently the bot's name is **Croesus**, and it lives in the channel **#tnnt** on **libera**.
 
-The bot reports on games being played in the tournament, including ascensions (wins), deaths (losses), and other significant game events. It also announces tournament scoreboard events by polling the TNNT API every 10 minutes for achievements, trophies, and clan ranking changes.
+The bot reports on games being played in the tournament, including ascensions (wins), deaths (losses), and other significant game events. It also announces tournament scoreboard events by polling the TNNT API every 5 minutes for achievements, trophies, and clan ranking changes.
 
 All commands use the `$` prefix (e.g., `$ping`, `$score`, `$whereis`).
 
