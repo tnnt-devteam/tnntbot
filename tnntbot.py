@@ -1314,8 +1314,16 @@ class DeathBotProtocol(irc.IRCClient):
             sorted_players = sorted(self.player_scores.items(),
                                   key=lambda x: (-x[1]["wins"], x[0]))[:5]
 
-            response = "Top 5 players: "
-            for i, (name, data) in enumerate(sorted_players, 1):
+            # Check if top player has any wins (0-win rankings are just alphabetical)
+            if sorted_players and sorted_players[0][1]["wins"] == 0:
+                self.respond(replyto, sender, "No players have any ascensions yet - players cannot be ranked.")
+                return
+
+            # Filter to only players with at least 1 win
+            players_with_wins = [(name, data) for name, data in sorted_players if data['wins'] > 0]
+
+            response = f"Top {len(players_with_wins)} players: "
+            for i, (name, data) in enumerate(players_with_wins, 1):
                 clan_text = f" ({data['clan']})" if data['clan'] else ""
                 response += f"#{i} {name}{clan_text}: {data['wins']} wins ({data['ratio']}) | "
             response = response.rstrip(" | ")
@@ -1368,8 +1376,16 @@ class DeathBotProtocol(irc.IRCClient):
             sorted_clans = sorted(self.clan_scores.items(),
                                 key=lambda x: x[1]["rank"])[:5]
 
-            response = "Top 5 clans: "
-            for name, data in sorted_clans:
+            # Check if top clan has any wins (0-win rankings are just alphabetical)
+            if sorted_clans and sorted_clans[0][1]["wins"] == 0:
+                self.respond(replyto, sender, "No clans have any ascensions yet - clans cannot be ranked.")
+                return
+
+            # Filter to only clans with at least 1 win
+            clans_with_wins = [(name, data) for name, data in sorted_clans if data['wins'] > 0]
+
+            response = f"Top {len(clans_with_wins)} clans: "
+            for name, data in clans_with_wins:
                 response += f"#{data['rank']} {name}: {data['wins']} wins ({data['ratio']}) | "
             response = response.rstrip(" | ")
             self.respond(replyto, sender, response)
