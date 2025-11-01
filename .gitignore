@@ -9,6 +9,4 @@ pw
 *.swp
 .twitter_oauth
 CLAUDE.md
-DEPLOYMENT.md
-MODERNIZATION.md
-TODO.md
+docs/*

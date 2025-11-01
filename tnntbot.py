@@ -1728,13 +1728,19 @@ class DeathBotProtocol(irc.IRCClient):
 
             # Check for new trophies
             current_trophies = set(t["name"] for t in player_data.get("trophies", []))
-            # Announce if: player was tracked before OR (was recently cleared with trophies AND announcements enabled)
-            if player_name in self.player_trophies or (was_recently_cleared and current_trophies and ANNOUNCE_AFTER_DB_REBUILD):
-                if player_name in self.player_trophies:
+            # Determine if we should check for new trophies
+            is_tracked_player = player_name in self.player_trophies
+            is_new_player = self.api_initialized and not is_tracked_player and not was_recently_cleared
+            should_announce = is_tracked_player or (was_recently_cleared and current_trophies and ANNOUNCE_AFTER_DB_REBUILD) or is_new_player
+
+            if should_announce:
+                if is_tracked_player:
                     new_trophies = current_trophies - self.player_trophies[player_name]
                 else:
-                    # Player was cleared, treat all trophies as new (only if ANNOUNCE_AFTER_DB_REBUILD is True)
+                    # Player was cleared or is brand new - treat all trophies as new
                     new_trophies = current_trophies
+                    if is_new_player and new_trophies:
+                        print(f"TNNT API: New player detected - {player_name} has {len(new_trophies)} trophies")
                 if new_trophies:
                     count = len(new_trophies)
                     trophy_list = list(new_trophies)
@@ -1763,13 +1769,19 @@ class DeathBotProtocol(irc.IRCClient):
             achievements = r.json()
             current_achievements = set(a["name"] for a in achievements)
 
-            # Announce if: player was tracked before OR (was recently cleared with achievements AND announcements enabled)
-            if player_name in self.player_achievements or (was_recently_cleared and current_achievements and ANNOUNCE_AFTER_DB_REBUILD):
-                if player_name in self.player_achievements:
+            # Determine if we should check for new achievements
+            is_tracked_player_ach = player_name in self.player_achievements
+            is_new_player_ach = self.api_initialized and not is_tracked_player_ach and not was_recently_cleared
+            should_announce_ach = is_tracked_player_ach or (was_recently_cleared and current_achievements and ANNOUNCE_AFTER_DB_REBUILD) or is_new_player_ach
+
+            if should_announce_ach:
+                if is_tracked_player_ach:
                     new_achievements = current_achievements - self.player_achievements[player_name]
                 else:
-                    # Player was cleared, treat all achievements as new (only if ANNOUNCE_AFTER_DB_REBUILD is True)
+                    # Player was cleared or is brand new - treat all achievements as new
                     new_achievements = current_achievements
+                    if is_new_player_ach and new_achievements:
+                        print(f"TNNT API: New player detected - {player_name} has {len(new_achievements)} achievements")
                 if new_achievements:
                     count = len(new_achievements)
                     achievement_list = list(new_achievements)
