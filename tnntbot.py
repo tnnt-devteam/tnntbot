@@ -1643,7 +1643,9 @@ class DeathBotProtocol(irc.IRCClient):
                 # Check for ranking changes
                 elif self.api_initialized and clan_name in self.clan_rankings:
                     old_rank = self.clan_rankings[clan_name]
-                    if old_rank != idx:
+                    # Only announce ranking changes if the clan has at least 1 win
+                    # (0-win rankings are purely alphabetical and not meaningful)
+                    if old_rank != idx and clan_data["wins"] > 0:
                         # Clan ranking changed!
                         if idx < old_rank:
                             # Improved ranking
