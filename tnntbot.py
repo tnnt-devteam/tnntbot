@@ -2383,7 +2383,8 @@ class DeathBotProtocol(irc.IRCClient):
                    "{points} points, {turns} turns, {death}{shortsuff}{ascsuff}").format(**game)
 
         # Special reaction if player was killed by the bot's namesake
-        if "Croesus" in game.get("death", ""):
+        # Check for "killed by Croesus" to avoid false positives from player-named monsters
+        if "killed by Croesus" in game.get("death", ""):
             yield random.choice(self.croesus_croesus_wins).format(player=game.get("name", "Someone"))
 
     def livelogReport(self, event):
@@ -2403,7 +2404,8 @@ class DeathBotProtocol(irc.IRCClient):
             yield ("{player} ({role} {race} {gender} {align}) "
                    "{message}, on T:{turns}").format(**event)
             # Special reaction if the bot's namesake is killed (message="killed Croesus")
-            if "Croesus" in event.get("message", ""):
+            # Check for "killed Croesus" to avoid false positives from player-named monsters
+            if "killed Croesus" in event.get("message", ""):
                 yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         elif "wish" in event:
             yield ("{player} ({role} {race} {gender} {align}) "
