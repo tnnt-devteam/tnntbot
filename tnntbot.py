@@ -2402,6 +2402,9 @@ class DeathBotProtocol(irc.IRCClient):
         if "message" in event:
             yield ("{player} ({role} {race} {gender} {align}) "
                    "{message}, on T:{turns}").format(**event)
+            # Special reaction if the bot's namesake is killed (message="killed Croesus")
+            if "Croesus" in event.get("message", ""):
+                yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         elif "wish" in event:
             yield ("{player} ({role} {race} {gender} {align}) "
                    'wished for "{wish}", on T:{turns}').format(**event)
