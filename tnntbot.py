@@ -1713,9 +1713,19 @@ class DeathBotProtocol(irc.IRCClient):
             r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/",
                            headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
+                print(f"TNNT API: HTTP {r.status_code} fetching player data for {player_name}")
                 return announcements  # Player might not exist or API error
 
-            player_data = r.json()
+            try:
+                player_data = r.json()
+            except ValueError as e:
+                print(f"TNNT API: JSON decode error for {player_name}: {e}")
+                return announcements
+
+            # Validate response structure
+            if not player_data or not isinstance(player_data, dict):
+                print(f"TNNT API: Invalid player data structure for {player_name}: {type(player_data)}")
+                return announcements
 
             # Check if this player was recently cleared (database rebuild scenario)
             was_recently_cleared = player_name in self.recently_cleared_players
@@ -1726,8 +1736,18 @@ class DeathBotProtocol(irc.IRCClient):
                 if not ANNOUNCE_AFTER_DB_REBUILD:
                     print(f"TNNT API: Suppressing re-announcements for {player_name} (ANNOUNCE_AFTER_DB_REBUILD=False)")
 
-            # Check for new trophies
-            current_trophies = set(t["name"] for t in player_data.get("trophies", []))
+            # Check for new trophies - with defensive validation
+            trophies_list = player_data.get("trophies", [])
+            if not isinstance(trophies_list, list):
+                print(f"TNNT API: Invalid trophies format for {player_name}: expected list, got {type(trophies_list)}")
+                trophies_list = []
+
+            current_trophies = set()
+            for t in trophies_list:
+                if isinstance(t, dict) and "name" in t and t["name"]:
+                    current_trophies.add(t["name"])
+                else:
+                    print(f"TNNT API: Malformed trophy data for {player_name}: {t}")
             # Determine if we should check for new trophies
             is_tracked_player = player_name in self.player_trophies
             is_new_player = self.api_initialized and not is_tracked_player and not was_recently_cleared
@@ -1764,10 +1784,26 @@ class DeathBotProtocol(irc.IRCClient):
             r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/achievements/",
                            headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
+                print(f"TNNT API: HTTP {r.status_code} fetching achievements for {player_name}")
                 return announcements
 
-            achievements = r.json()
-            current_achievements = set(a["name"] for a in achievements)
+            try:
+                achievements = r.json()
+            except ValueError as e:
+                print(f"TNNT API: JSON decode error for achievements of {player_name}: {e}")
+                return announcements
+
+            # Validate achievements response
+            if not isinstance(achievements, list):
+                print(f"TNNT API: Invalid achievements format for {player_name}: expected list, got {type(achievements)}")
+                achievements = []
+
+            current_achievements = set()
+            for a in achievements:
+                if isinstance(a, dict) and "name" in a and a["name"]:
+                    current_achievements.add(a["name"])
+                else:
+                    print(f"TNNT API: Malformed achievement data for {player_name}: {a}")
 
             # Determine if we should check for new achievements
             is_tracked_player_ach = player_name in self.player_achievements
@@ -1803,8 +1839,11 @@ class DeathBotProtocol(irc.IRCClient):
             self.player_achievements[player_name] = current_achievements
 
         except Exception as e:
-            # Silently ignore individual player errors to not spam logs
-            pass
+            # Log errors for debugging but don't crash the bot
+            print(f"Error checking achievements/trophies for {player_name}: {type(e).__name__}: {e}")
+            # For detailed debugging, uncomment to see full traceback:
+            # import traceback
+            # traceback.print_exc()
 
         return announcements
 
