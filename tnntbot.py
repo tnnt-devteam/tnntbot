@@ -155,6 +155,12 @@ RE_COLOR_END = re.compile(r'[\x1D\x03\x0f]')  # end of colour and italics
 RE_DICE_CMD = re.compile(r'^\d*d\d*$')  # dice command pattern
 RE_SPACE_COLOR = re.compile(r'^ [\x1D\x03\x0f]*')  # space and color codes
 
+# Logging helper with timestamps
+def tlog(message):
+    """Print a log message with timestamp in format [YYYY-MM-DD HH:MM:SS]"""
+    timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    print(f"{timestamp} {message}")
+
 # Custom dict class for shelve fallback
 class DictWithSync(dict):
     """Dict subclass that supports sync() method for shelve compatibility.
@@ -273,7 +279,7 @@ class DeathBotProtocol(irc.IRCClient):
         with open(PWFILE, "r") as f:
             password = f.read().strip()
     except (IOError, OSError) as e:
-        print(f"Warning: Could not read password file {PWFILE}: {e}")
+        tlog(f"Warning: Could not read password file {PWFILE}: {e}")
         password = "NotTHEPassword"
 
     sourceURL = "https://github.com/tnnt-devteam/tnntbot"
@@ -332,7 +338,7 @@ class DeathBotProtocol(irc.IRCClient):
                 try:
                     chanLog[c] = open(chanLogName[c],'a')
                 except (IOError, OSError) as e:
-                    print(f"Warning: Could not open log file {chanLogName[c]}: {e}")
+                    tlog(f"Warning: Could not open log file {chanLogName[c]}: {e}")
                     chanLog[c] = None
                 if chanLog[c]: os.chmod(chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
 
@@ -346,7 +352,7 @@ class DeathBotProtocol(irc.IRCClient):
         # File doesn't exist or can't be read - normal for fresh install
         clanTag = {}
     except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON in {CLANTAGJSON}: {e}")
+        tlog(f"Error: Invalid JSON in {CLANTAGJSON}: {e}")
         clanTag = {}
 
     # for displaying variants and server tags in colour
@@ -437,12 +443,12 @@ class DeathBotProtocol(irc.IRCClient):
         if seconds_until_next <= 0:
             seconds_until_next += 300  # Add 5 minutes if somehow negative
 
-        print(f"TNNT API: Scheduling regular polling to start in {seconds_until_next:.1f} seconds (at {next_poll.strftime('%H:%M:%S')})")
+        tlog(f"TNNT API: Scheduling regular polling to start in {seconds_until_next:.1f} seconds (at {next_poll.strftime('%H:%M:%S')})")
         reactor.callLater(seconds_until_next, self.startAPIPolling)
 
     def _initialAPIFetch(self):
         """Do an initial API fetch to populate data quickly after startup"""
-        print("TNNT API: Performing initial data fetch...")
+        tlog("TNNT API: Performing initial data fetch...")
         self.checkTNNTAPI()
 
     def _initializeMilestones(self):
@@ -501,7 +507,7 @@ class DeathBotProtocol(irc.IRCClient):
             try:
                 self.tellbuf = shelve.open(f"{BOTDIR}/tellmsg", writeback=True, protocol=2)
             except Exception as e2:
-                print(f"Error: Could not open tell message database: {e2}")
+                tlog(f"Error: Could not open tell message database: {e2}")
                 # Create an in-memory fallback so bot doesn't crash
                 self.tellbuf = DictWithSync()
 
@@ -617,7 +623,7 @@ class DeathBotProtocol(irc.IRCClient):
                     handle.seek(0, 2)
                     self.logs_seek[filepath] = handle.tell()
             except (IOError, OSError) as e:
-                print(f"Warning: Could not seek to end of livelog {filepath}: {e}")
+                tlog(f"Warning: Could not seek to end of livelog {filepath}: {e}")
                 self.logs_seek[filepath] = 0
 
         # sequentially read xlogfiles from beginning to pre-populate lastgame data.
@@ -633,11 +639,11 @@ class DeathBotProtocol(irc.IRCClient):
                             for line in self.logs[filepath][0](game,False):
                                 pass
                         except Exception as e:
-                            print("Warning: Error processing xlogfile line during startup: {e}")
+                            tlog("Warning: Error processing xlogfile line during startup: {e}")
                             continue
                     self.logs_seek[filepath] = handle.tell()
             except (IOError, OSError) as e:
-                print(f"Warning: Could not read xlogfile {filepath}: {e}")
+                tlog(f"Warning: Could not read xlogfile {filepath}: {e}")
                 self.logs_seek[filepath] = 0
 
     def _startMonitoringTasks(self):
@@ -674,7 +680,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     def irc_CAP(self, prefix, params):
         if params[1] != 'ACK' or params[2].split() != ['sasl']:
-            print('sasl not available')
+            tlog('sasl not available')
             self.quit('')
         sasl_string = f'{self.nickname}\0{self.nickname}\0{self.password}'
         sasl_b64_bytes = base64.b64encode(sasl_string.encode(encoding='UTF-8',errors='strict'))
@@ -685,7 +691,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.sendLine('CAP END')
 
     def irc_904(self, prefix, params):
-        print('sasl auth failed', params)
+        tlog('sasl auth failed', params)
         self.quit('')
     irc_905 = irc_904
 
@@ -751,7 +757,7 @@ class DeathBotProtocol(irc.IRCClient):
             try:
                 self.chanLog[c] = open(self.chanLogName[c],'a') # 'w' is probably fine here
             except (IOError, OSError) as e:
-                print(f"Warning: Could not rotate log file {self.chanLogName[c]}: {e}")
+                tlog(f"Warning: Could not rotate log file {self.chanLogName[c]}: {e}")
                 self.chanLog[c] = None
             if self.chanLog[c]: os.chmod(self.chanLogName[c],stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IROTH)
 
@@ -820,7 +826,7 @@ class DeathBotProtocol(irc.IRCClient):
             else: #channel - prepend "Nick: " to message
                 self.msgLog(replyto, sender + ": " + message)
         except Exception as e:
-            print(f"Error sending response to {replyto}: {e}")
+            tlog(f"Error sending response to {replyto}: {e}")
 
     def _checkRateLimit(self, sender, command):
         """
@@ -887,7 +893,7 @@ class DeathBotProtocol(irc.IRCClient):
             return True  # Command allowed
 
         except Exception as e:
-            print(f"Rate limiting error for {sender}: {e}")
+            tlog(f"Rate limiting error for {sender}: {e}")
             # Fail-safe: allow command if rate limiting breaks
             return True
 
@@ -915,7 +921,7 @@ class DeathBotProtocol(irc.IRCClient):
             return True  # Send penalty message
 
         except Exception as e:
-            print(f"Penalty response rate limiting error for {sender}: {e}")
+            tlog(f"Penalty response rate limiting error for {sender}: {e}")
             return True  # Fail-safe: allow message
 
     def _checkBurstProtection(self, sender, command):
@@ -938,7 +944,7 @@ class DeathBotProtocol(irc.IRCClient):
             return True
 
         except Exception as e:
-            print(f"Burst protection error for {sender}: {e}")
+            tlog(f"Burst protection error for {sender}: {e}")
             return True  # Fail-safe: allow command
 
     def generate_dumplog_url(self, game, dumpfile):
@@ -1048,7 +1054,7 @@ class DeathBotProtocol(irc.IRCClient):
                 del self.last_command_time[user]
 
         except Exception as e:
-            print(f"Error during rate limit cleanup: {e}")
+            tlog(f"Error during rate limit cleanup: {e}")
 
     # Query/Response handling
     #Q#
@@ -1059,7 +1065,7 @@ class DeathBotProtocol(irc.IRCClient):
             # sender is passed to master; msgwords[2] is passed tp sender
             self.qCommands[msgwords[3]](sender,msgwords[2],msgwords[1],msgwords[3:])
         else:
-            print(f"Bogus slave query from {sender}: {' '.join(msgwords)}")
+            tlog(f"Bogus slave query from {sender}: {' '.join(msgwords)}")
 
     #R# / #P#
     def doResponse(self, sender, replyto, msgwords):
@@ -1074,7 +1080,7 @@ class DeathBotProtocol(irc.IRCClient):
                 #all slaves have responded
                 self.queries[msgwords[1]]["callback"](self.queries.pop(msgwords[1]))
         else:
-            print(f"Bogus slave response from {sender}: {' '.join(msgwords)}")
+            tlog(f"Bogus slave response from {sender}: {' '.join(msgwords)}")
 
     # As above, but timed out receiving one or more responses
     def doQueryTimeout(self, query):
@@ -1086,7 +1092,7 @@ class DeathBotProtocol(irc.IRCClient):
             if not self.queries[query]["finished"].get(i,False):
                 noResp.append(i)
         if noResp:
-            print(f"WARNING: Query {query}: No response from {self.listStuff(noResp)}")
+            tlog(f"WARNING: Query {query}: No response from {self.listStuff(noResp)}")
         self.queries[query]["callback"](self.queries.pop(query))
 
     #S#
@@ -1242,7 +1248,7 @@ class DeathBotProtocol(irc.IRCClient):
         self.checkTNNTAPI()
         # Schedule to run every 5 minutes from now on
         self.looping_calls["api"] = task.LoopingCall(self.checkTNNTAPI)
-        self.looping_calls["api"].start(300)  # 300 seconds = 5 minutes
+        self.looping_calls["api"].start(300, now=False)  # 300 seconds = 5 minutes
 
     # Countdown timer
     def countDown(self):
@@ -1502,7 +1508,7 @@ class DeathBotProtocol(irc.IRCClient):
             for channel in SPAMCHANNELS:
                 reactor.callLater(delay, self.msgLog, channel, msg)
             # Debug log
-            print(f"GitHub: New commit in {repo}: {short_hash} by {author} (delayed {delay}s)")
+            tlog(f"GitHub: New commit in {repo}: {short_hash} by {author} (delayed {delay}s)")
         # Mark as initialized only after ALL repos have been checked
         if not self.github_initialized:
             self.github_initialized = True
@@ -1518,7 +1524,7 @@ class DeathBotProtocol(irc.IRCClient):
             headers = {"User-Agent": "TNNT IRC Bot/1.0"}
             r = requests.get(url, headers=headers, timeout=10)
             if r.status_code != 200:
-                print(f"GitHub Atom feed for {repo} returned status {r.status_code}")
+                tlog(f"GitHub Atom feed for {repo} returned status {r.status_code}")
                 return new_commits
             # Parse the Atom feed
             root = ET.fromstring(r.text)
@@ -1571,16 +1577,16 @@ class DeathBotProtocol(irc.IRCClient):
                 self.seen_github_commits[repo] = set(commit_list[-50:])
             return new_commits
         except requests.exceptions.Timeout:
-            print(f"Timeout checking GitHub Atom feed for {repo}")
+            tlog(f"Timeout checking GitHub Atom feed for {repo}")
             return new_commits
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching GitHub Atom feed for {repo}: {e}")
+            tlog(f"Error fetching GitHub Atom feed for {repo}: {e}")
             return new_commits
         except ET.ParseError as e:
-            print(f"Error parsing GitHub Atom XML for {repo}: {e}")
+            tlog(f"Error parsing GitHub Atom XML for {repo}: {e}")
             return new_commits
         except Exception as e:
-            print(f"Unexpected error checking GitHub: {e}")
+            tlog(f"Unexpected error checking GitHub: {e}")
             return new_commits
 
     # TNNT API monitoring for scoreboard functionality
@@ -1590,10 +1596,10 @@ class DeathBotProtocol(irc.IRCClient):
             return  # Only master bot monitors API
 
         try:
-            # Fetch current scoreboard data
+            # Fetch scoreboard data (now returns ALL players and clans with no limits)
             r = requests.get(f"{TNNT_API_BASE}/scoreboard/", headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
-                print(f"TNNT API scoreboard returned status {r.status_code}")
+                tlog(f"TNNT API scoreboard returned status {r.status_code}")
                 return
 
             data = r.json()
@@ -1601,13 +1607,15 @@ class DeathBotProtocol(irc.IRCClient):
             # Collect all announcements to send with delays
             all_announcements = []
 
-            # Track current players to detect removals
-            current_players = set()
+            # Get all player names from scoreboard
+            all_player_names = [p["name"] for p in data.get("players", [])]
 
-            # Process player data
+            # Track current players to detect removals
+            current_players = set(all_player_names)
+
+            # Process scoreboard player data for scores
             for player_data in data.get("players", []):
                 player_name = player_data["name"]
-                current_players.add(player_name)
 
                 # Store player scores for $score command
                 self.player_scores[player_name] = {
@@ -1617,16 +1625,17 @@ class DeathBotProtocol(irc.IRCClient):
                     "clan": player_data.get("clan", None)
                 }
 
-                # Check for new achievements (requires separate API call)
+            # Check achievements for ALL players
+            for player_name in all_player_names:
                 player_announcements = self._checkPlayerAchievements(player_name)
                 if self.api_initialized:
                     all_announcements.extend(player_announcements)
 
-            # Clear data for players no longer in scoreboard (e.g., after database wipe)
+            # Clear data for players no longer in tournament (e.g., after database wipe)
             if self.api_initialized:
                 removed_players = set(self.player_achievements.keys()) - current_players
                 if removed_players:
-                    print(f"TNNT API: {len(removed_players)} players no longer in scoreboard, marking as cleared")
+                    tlog(f"TNNT API: {len(removed_players)} players no longer in tournament, marking as cleared")
                     # Track these players as recently cleared so we can announce when they return
                     self.recently_cleared_players.update(removed_players)
                     # Clear the stored data
@@ -1654,7 +1663,7 @@ class DeathBotProtocol(irc.IRCClient):
                     # New clan registered
                     msg = f"[{self.displaystring['clan']}] New clan registered - {clan_name}"
                     all_announcements.append((msg, "clan", clan_name, "new"))
-                    print(f"TNNT API: New clan registered - {clan_name}")
+                    tlog(f"TNNT API: New clan registered - {clan_name}")
 
                 # Check for ranking changes
                 elif self.api_initialized and clan_name in self.clan_rankings:
@@ -1672,7 +1681,7 @@ class DeathBotProtocol(irc.IRCClient):
                             msg = f"[{self.displaystring['clan']}] Clan {clan_name} drops to position #{idx}."
 
                         all_announcements.append((msg, "clan", clan_name, f"{old_rank}->{idx}"))
-                        print(f"TNNT API: Clan ranking change - {clan_name}: {old_rank} -> {idx}")
+                        tlog(f"TNNT API: Clan ranking change - {clan_name}: {old_rank} -> {idx}")
 
             # Update stored rankings
             self.clan_rankings = new_clan_rankings
@@ -1689,19 +1698,19 @@ class DeathBotProtocol(irc.IRCClient):
                 reactor.callLater(delay, self.announce, msg, True, True, early_hours)
                 # Debug log
                 if len(announcement) >= 3:
-                    print(f"TNNT API: Scheduling announcement #{i+1} (delay {delay}s): {announcement[1]} - {announcement[2]}")
+                    tlog(f"TNNT API: Scheduling announcement #{i+1} (delay {delay}s): {announcement[1]} - {announcement[2]}")
 
             # Mark as initialized after first successful fetch
             if not self.api_initialized:
                 self.api_initialized = True
-                print(f"TNNT API: Initialized with {len(self.player_scores)} players and {len(self.clan_scores)} clans")
+                tlog(f"TNNT API: Initialized - tracking {len(all_player_names)} players and {len(self.clan_scores)} clans")
 
         except requests.exceptions.Timeout:
-            print("Timeout checking TNNT API")
+            tlog("Timeout checking TNNT API")
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching TNNT API: {e}")
+            tlog(f"Error fetching TNNT API: {e}")
         except Exception as e:
-            print(f"Unexpected error checking TNNT API: {e}")
+            tlog(f"Unexpected error checking TNNT API: {e}")
 
     def _checkPlayerAchievements(self, player_name):
         """Check for new achievements and trophies for a specific player
@@ -1713,33 +1722,33 @@ class DeathBotProtocol(irc.IRCClient):
             r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/",
                            headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
-                print(f"TNNT API: HTTP {r.status_code} fetching player data for {player_name}")
+                tlog(f"TNNT API: HTTP {r.status_code} fetching player data for {player_name}")
                 return announcements  # Player might not exist or API error
 
             try:
                 player_data = r.json()
             except ValueError as e:
-                print(f"TNNT API: JSON decode error for {player_name}: {e}")
+                tlog(f"TNNT API: JSON decode error for {player_name}: {e}")
                 return announcements
 
             # Validate response structure
             if not player_data or not isinstance(player_data, dict):
-                print(f"TNNT API: Invalid player data structure for {player_name}: {type(player_data)}")
+                tlog(f"TNNT API: Invalid player data structure for {player_name}: {type(player_data)}")
                 return announcements
 
             # Check if this player was recently cleared (database rebuild scenario)
             was_recently_cleared = player_name in self.recently_cleared_players
             if was_recently_cleared:
-                print(f"TNNT API: Player {player_name} returned after being cleared")
+                tlog(f"TNNT API: Player {player_name} returned after being cleared")
                 self.recently_cleared_players.discard(player_name)
                 # Check if we should suppress announcements for database rebuilds
                 if not ANNOUNCE_AFTER_DB_REBUILD:
-                    print(f"TNNT API: Suppressing re-announcements for {player_name} (ANNOUNCE_AFTER_DB_REBUILD=False)")
+                    tlog(f"TNNT API: Suppressing re-announcements for {player_name} (ANNOUNCE_AFTER_DB_REBUILD=False)")
 
             # Check for new trophies - with defensive validation
             trophies_list = player_data.get("trophies", [])
             if not isinstance(trophies_list, list):
-                print(f"TNNT API: Invalid trophies format for {player_name}: expected list, got {type(trophies_list)}")
+                tlog(f"TNNT API: Invalid trophies format for {player_name}: expected list, got {type(trophies_list)}")
                 trophies_list = []
 
             current_trophies = set()
@@ -1747,7 +1756,7 @@ class DeathBotProtocol(irc.IRCClient):
                 if isinstance(t, dict) and "name" in t and t["name"]:
                     current_trophies.add(t["name"])
                 else:
-                    print(f"TNNT API: Malformed trophy data for {player_name}: {t}")
+                    tlog(f"TNNT API: Malformed trophy data for {player_name}: {t}")
             # Determine if we should check for new trophies
             is_tracked_player = player_name in self.player_trophies
             is_new_player = self.api_initialized and not is_tracked_player and not was_recently_cleared
@@ -1760,7 +1769,7 @@ class DeathBotProtocol(irc.IRCClient):
                     # Player was cleared or is brand new - treat all trophies as new
                     new_trophies = current_trophies
                     if is_new_player and new_trophies:
-                        print(f"TNNT API: New player detected - {player_name} has {len(new_trophies)} trophies")
+                        tlog(f"TNNT API: New player detected - {player_name} has {len(new_trophies)} trophies")
                 if new_trophies:
                     count = len(new_trophies)
                     trophy_list = list(new_trophies)
@@ -1777,25 +1786,25 @@ class DeathBotProtocol(irc.IRCClient):
                         msg = f"[{self.displaystring['trophy']}] {player_name} now has {count} new trophies."
 
                     announcements.append((msg, "trophy", player_name, str(new_trophies)))
-                    print(f"TNNT API: New trophies - {player_name}: {new_trophies}")
+                    tlog(f"TNNT API: New trophies - {player_name}: {new_trophies}")
             self.player_trophies[player_name] = current_trophies
 
             # Fetch achievements
             r = requests.get(f"{TNNT_API_BASE}/players/{player_name}/achievements/",
                            headers=TNNT_API_HEADERS, timeout=10)
             if r.status_code != 200:
-                print(f"TNNT API: HTTP {r.status_code} fetching achievements for {player_name}")
+                tlog(f"TNNT API: HTTP {r.status_code} fetching achievements for {player_name}")
                 return announcements
 
             try:
                 achievements = r.json()
             except ValueError as e:
-                print(f"TNNT API: JSON decode error for achievements of {player_name}: {e}")
+                tlog(f"TNNT API: JSON decode error for achievements of {player_name}: {e}")
                 return announcements
 
             # Validate achievements response
             if not isinstance(achievements, list):
-                print(f"TNNT API: Invalid achievements format for {player_name}: expected list, got {type(achievements)}")
+                tlog(f"TNNT API: Invalid achievements format for {player_name}: expected list, got {type(achievements)}")
                 achievements = []
 
             current_achievements = set()
@@ -1803,7 +1812,7 @@ class DeathBotProtocol(irc.IRCClient):
                 if isinstance(a, dict) and "name" in a and a["name"]:
                     current_achievements.add(a["name"])
                 else:
-                    print(f"TNNT API: Malformed achievement data for {player_name}: {a}")
+                    tlog(f"TNNT API: Malformed achievement data for {player_name}: {a}")
 
             # Determine if we should check for new achievements
             is_tracked_player_ach = player_name in self.player_achievements
@@ -1813,11 +1822,15 @@ class DeathBotProtocol(irc.IRCClient):
             if should_announce_ach:
                 if is_tracked_player_ach:
                     new_achievements = current_achievements - self.player_achievements[player_name]
+                    if new_achievements:
+                        tlog(f"TNNT API: Player {player_name} has {len(new_achievements)} new achievements (was tracked)")
+                    else:
+                        tlog(f"TNNT API: Player {player_name} checked - no new achievements (has {len(current_achievements)} total)")
                 else:
                     # Player was cleared or is brand new - treat all achievements as new
                     new_achievements = current_achievements
                     if is_new_player_ach and new_achievements:
-                        print(f"TNNT API: New player detected - {player_name} has {len(new_achievements)} achievements")
+                        tlog(f"TNNT API: New player detected - {player_name} has {len(new_achievements)} achievements")
                 if new_achievements:
                     count = len(new_achievements)
                     achievement_list = list(new_achievements)
@@ -1834,13 +1847,13 @@ class DeathBotProtocol(irc.IRCClient):
                         msg = f"[{self.displaystring['achieve']}] {player_name} just earned {count} new achievements."
 
                     announcements.append((msg, "achievement", player_name, str(new_achievements)))
-                    print(f"TNNT API: New achievements - {player_name}: {new_achievements}")
+                    tlog(f"TNNT API: New achievements - {player_name}: {new_achievements}")
 
             self.player_achievements[player_name] = current_achievements
 
         except Exception as e:
             # Log errors for debugging but don't crash the bot
-            print(f"Error checking achievements/trophies for {player_name}: {type(e).__name__}: {e}")
+            tlog(f"Error checking achievements/trophies for {player_name}: {type(e).__name__}: {e}")
             # For detailed debugging, uncomment to see full traceback:
             # import traceback
             # traceback.print_exc()
@@ -1947,7 +1960,7 @@ class DeathBotProtocol(irc.IRCClient):
         message = f"#Q# {' '.join([q, sender] + msgwords)}"
 
         for sl in list(self.slaves.keys()):
-            if TEST: print("forwardQuery: " + sl + " " + message)
+            if TEST: tlog("forwardQuery: " + sl + " " + message)
             self.msg(sl,message)
         reactor.callLater(TIMEOUT, self.doQueryTimeout, q)
 
@@ -2511,7 +2524,7 @@ class DeathBotProtocol(irc.IRCClient):
             for master in MASTERS:
                 self.msg(master, f"#S# {json.dumps(summary_data)}")
         except Exception as e:
-            print(f"Error sending summary update: {e}")
+            tlog(f"Error sending summary update: {e}")
 
     def logReport(self, filepath):
         try:
@@ -2535,33 +2548,33 @@ class DeathBotProtocol(irc.IRCClient):
                                 self.announce(line,spam)
                         self.updateSummary()
                     except Exception as e:
-                        print(f"Error processing log line from {filepath}: {e}")
+                        tlog(f"Error processing log line from {filepath}: {e}")
                         # Continue processing other lines
                         continue
 
                 self.logs_seek[filepath] = handle.tell()
         except (IOError, OSError) as e:
-            print("Error reading log file {}: {}".format(filepath, e))
+            tlog("Error reading log file {}: {}".format(filepath, e))
             # Don't update seek position on read error
 
 class DeathBotFactory(ReconnectingClientFactory):
     def startedConnecting(self, connector):
-        print('Started to connect.')
+        tlog('Started to connect.')
 
     def buildProtocol(self, addr):
-        print('Connected.')
-        print('Resetting reconnection delay')
+        tlog('Connected.')
+        tlog('Resetting reconnection delay')
         self.resetDelay()
         p = DeathBotProtocol()
         p.factory = self
         return p
 
     def clientConnectionLost(self, connector, reason):
-        print('Lost connection.  Reason:', reason)
+        tlog('Lost connection.  Reason:', reason)
         ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
-        print('Connection failed. Reason:', reason)
+        tlog('Connection failed. Reason:', reason)
         ReconnectingClientFactory.clientConnectionFailed(self, connector,
                                                          reason)
 
