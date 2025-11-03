@@ -1673,15 +1673,14 @@ class DeathBotProtocol(irc.IRCClient):
                     if old_rank != idx and clan_data["wins"] > 0:
                         # Clan ranking changed!
                         if idx < old_rank:
-                            # Improved ranking
+                            # Improved ranking - announce this
                             ascensions = clan_data["wins"]
                             msg = f"[{self.displaystring['clan']}] Clan {clan_name} moves up to position #{idx} with {ascensions} ascensions."
+                            all_announcements.append((msg, "clan", clan_name, f"{old_rank}->{idx}"))
+                            tlog(f"TNNT API: Clan ranking change - {clan_name}: {old_rank} -> {idx}")
                         else:
-                            # Dropped ranking
-                            msg = f"[{self.displaystring['clan']}] Clan {clan_name} drops to position #{idx}."
-
-                        all_announcements.append((msg, "clan", clan_name, f"{old_rank}->{idx}"))
-                        tlog(f"TNNT API: Clan ranking change - {clan_name}: {old_rank} -> {idx}")
+                            # Dropped ranking - log but don't announce (reduces noise)
+                            tlog(f"TNNT API: Clan ranking change (not announced) - {clan_name}: {old_rank} -> {idx} (dropped)")
 
             # Update stored rankings
             self.clan_rankings = new_clan_rankings
