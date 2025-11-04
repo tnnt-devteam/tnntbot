@@ -144,7 +144,7 @@ SUMMARY_UPDATE_INTERVAL = 300  # seconds between summary updates (5 minutes)
 STALE_BURST_TIMEOUT = 3600  # 1 hour before removing burst protection data
 
 # Game thresholds
-SCUM_THRESHOLD = 1000  # points below which quit/escape is considered scum
+# Startscum definition: quit/escaped with <= 100 turns (no dumplog generated)
 SHORT_GAME_TURNS = 100  # turns below which games are batched
 SHORT_GAME_BATCH_SIZE = 100  # report every N short games
 
@@ -2329,7 +2329,7 @@ class DeathBotProtocol(irc.IRCClient):
 
     ### Xlog/livelog event processing
     def startscummed(self, game):
-        return game["death"].lower() in ["quit", "escaped"] and game["points"] < SCUM_THRESHOLD
+        return game["death"].lower() in ["quit", "escaped"] and int(game["turns"]) <= 100
 
     # shortgame tracks consecutive games < 100 turns
     # we report a summary of these rather than individually
@@ -2342,7 +2342,7 @@ class DeathBotProtocol(irc.IRCClient):
         if not lname in self.allgames:
             self.allgames[lname] = 0
         self.allgames[lname] += 1
-        scumbag = self.startscummed(game)
+        is_startscum = self.startscummed(game)
 
         # collect hourly/daily stats for games that actually ended within the period
         etime = fromtimestamp_int(game["endtime"])
@@ -2356,7 +2356,7 @@ class DeathBotProtocol(irc.IRCClient):
         for period in ["hour","day","full"]:
             if period == "full" or et[period] == nt[period]:
                 self.stats[period]["games"] += 1
-                if scumbag:
+                if is_startscum:
                     self.stats[period]["scum"] += 1
                 else: # only count non-scums in rrga stats
                     for rrga in ["role","race","gender","align"]:
@@ -2370,14 +2370,18 @@ class DeathBotProtocol(irc.IRCClient):
         # Need to figure out the dump path before messing with the name below
         dumpfile = (self.dump_file_prefix + game["dumpfmt"]).format(**game)
 
-        # Generate dumplog URL using new method that checks both local and S3
-        if TEST:
-            # In test mode, always generate a URL
-            dumpurl = urllib.parse.quote(game["dumpfmt"].format(**game))
-            dumpurl = self.dump_url_prefix.format(**game) + dumpurl
+        # Check if game was startscummed - those don't produce dumplogs
+        if is_startscum:
+            dumpurl = f"Game was startscummed ({game['turns']} turns, {game['death']}) - no dumplog exists"
         else:
-            # In production, use the new method that checks both local and S3
-            dumpurl = self.generate_dumplog_url(game, dumpfile)
+            # Generate dumplog URL using new method that checks both local and S3
+            if TEST:
+                # In test mode, always generate a URL
+                dumpurl = urllib.parse.quote(game["dumpfmt"].format(**game))
+                dumpurl = self.dump_url_prefix.format(**game) + dumpurl
+            else:
+                # In production, use the new method that checks both local and S3
+                dumpurl = self.generate_dumplog_url(game, dumpfile)
         self.lg[lname] = dumpurl
         self.lastgame = dumpurl
 
@@ -2432,7 +2436,7 @@ class DeathBotProtocol(irc.IRCClient):
             del self.shortgame[game["name"]]
 
         if (not report): return # we're just reading through old entries at startup
-        if scumbag: return # must break streak even on scum games
+        if is_startscum: return # must break streak even on scum games
 
         # start of actual reporting
         if "while" in game and game["while"] != "":
