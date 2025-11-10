@@ -2452,8 +2452,9 @@ class DeathBotProtocol(irc.IRCClient):
         # Special reaction if player was killed by the bot's namesake
         # Pattern matches "killed by Croesus" and "killed by the invisible Croesus"
         # but avoids false positives from player-named monsters like "killed by a kobold called Croesus"
+        # Prefix with ##CROESUS## to skip server tag in message processing
         if re.search(r"killed by (the invisible )?Croesus(?:[^a-zA-Z]|$)", game.get("death", "")):
-            yield random.choice(self.croesus_croesus_wins).format(player=game.get("name", "Someone"))
+            yield "##CROESUS##" + random.choice(self.croesus_croesus_wins).format(player=game.get("name", "Someone"))
 
     def livelogReport(self, event):
         if event.get("charname", False):
@@ -2474,8 +2475,9 @@ class DeathBotProtocol(irc.IRCClient):
             # Special reaction if the bot's namesake is killed (message="killed Croesus")
             # Pattern matches "killed Croesus" and "killed the invisible Croesus"
             # but avoids false positives from player-named monsters
+            # Prefix with ##CROESUS## to skip server tag in message processing
             if re.search(r"killed (the invisible )?Croesus(?:[^a-zA-Z]|$)", event.get("message", "")):
-                yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
+                yield "##CROESUS##" + random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         elif "wish" in event:
             yield ("{player} ({role} {race} {gender} {align}) "
                    'wished for "{wish}", on T:{turns}').format(**event)
@@ -2493,17 +2495,19 @@ class DeathBotProtocol(irc.IRCClient):
                    "killed {killed_uniq}, on T:{turns}").format(**event)
             # Special reaction if the bot's namesake is killed
             # Check for Croesus with or without "the invisible" prefix
+            # Prefix with ##CROESUS## to skip server tag in message processing
             killed_uniq = event.get("killed_uniq", "")
             if killed_uniq == "Croesus" or killed_uniq == "the invisible Croesus":
-                yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
+                yield "##CROESUS##" + random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         elif "defeated" in event: # fourk uses this instead of killed_uniq.
             yield ("{player} ({role} {race} {gender} {align}) "
                    "defeated {defeated}, on T:{turns}").format(**event)
             # Special reaction if the bot's namesake is defeated
             # Check for Croesus with or without "the invisible" prefix
+            # Prefix with ##CROESUS## to skip server tag in message processing
             defeated = event.get("defeated", "")
             if defeated == "Croesus" or defeated == "the invisible Croesus":
-                yield random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
+                yield "##CROESUS##" + random.choice(self.croesus_player_wins).format(player=event.get("player", "Someone"))
         # more 1.3d shite
         elif "genocided_monster" in event:
             if event.get("dungeon_wide","yes") == "yes":
@@ -2547,7 +2551,11 @@ class DeathBotProtocol(irc.IRCClient):
                         game["dumpfmt"] = self.logs[filepath][3]
                         spam = self.logs[filepath][4]
                         for line in self.logs[filepath][0](game):
-                            line = f"{self.displaytag(SERVERTAG)} {line}"
+                            # Check if this is a Croesus reaction (no server tag needed)
+                            if line.startswith("##CROESUS##"):
+                                line = line[11:]  # Strip the ##CROESUS## prefix
+                            else:
+                                line = f"{self.displaytag(SERVERTAG)} {line}"
                             if SLAVE:
                                 if spam:
                                     line = f"SPAM: {line}"
