@@ -1092,7 +1092,7 @@ class DeathBotProtocol(irc.IRCClient):
             if not self.queries[query]["finished"].get(i,False):
                 noResp.append(i)
         if noResp:
-            tlog(f"WARNING: Query {query}: No response from {self.listStuff(noResp)}")
+            tlog(f"WARNING: Query {query}: No response from {', '.join(noResp)}")
         self.queries[query]["callback"](self.queries.pop(query))
 
     #S#
@@ -2587,11 +2587,11 @@ class DeathBotFactory(ReconnectingClientFactory):
         return p
 
     def clientConnectionLost(self, connector, reason):
-        tlog('Lost connection.  Reason:', reason)
+        tlog(f'Lost connection.  Reason: {reason}')
         ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
-        tlog('Connection failed. Reason:', reason)
+        tlog(f'Connection failed. Reason: {reason}')
         ReconnectingClientFactory.clientConnectionFailed(self, connector,
                                                          reason)
 
