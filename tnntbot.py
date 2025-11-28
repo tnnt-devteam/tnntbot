@@ -161,6 +161,44 @@ def tlog(message):
     timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
     print(f"{timestamp} {message}")
 
+# Timestamped stderr wrapper for error logging
+class TimestampedStderr:
+    """Wrapper for sys.stderr that prepends timestamps to each line.
+
+    Twisted's exception handling writes to stderr without timestamps.
+    This wrapper ensures error.log entries have the same timestamp format
+    as access.log entries from tlog().
+    """
+    def __init__(self, stream):
+        self._stream = stream
+        self._line_start = True
+
+    def write(self, text):
+        if not text:
+            return
+        # Process text character by character to handle partial lines
+        output = []
+        for char in text:
+            if self._line_start and char != '\n':
+                timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S] ")
+                output.append(timestamp)
+                self._line_start = False
+            output.append(char)
+            if char == '\n':
+                self._line_start = True
+        self._stream.write(''.join(output))
+
+    def flush(self):
+        self._stream.flush()
+
+    # Pass through other attributes to the underlying stream
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+# Install timestamped stderr wrapper
+import sys
+sys.stderr = TimestampedStderr(sys.stderr)
+
 # Custom dict class for shelve fallback
 class DictWithSync(dict):
     """Dict subclass that supports sync() method for shelve compatibility.
