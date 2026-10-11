@@ -552,7 +552,7 @@ class DeathBotProtocol(irc.IRCClient):
     def _initializeGitHub(self):
         """Initialize GitHub monitoring data structures."""
         # For GitHub monitoring
-        self.seen_github_commits = {}  # repo -> set of commit IDs
+        self.seen_github_commits = {}  # repo -> list of commit IDs (ordered)
         self.github_initialized = False
         self.github_repos = []
         if ENABLE_GITHUB and GITHUB_REPOS:
@@ -560,7 +560,7 @@ class DeathBotProtocol(irc.IRCClient):
             # Initialize seen commits for each repo
             for repo_config in self.github_repos:
                 repo_key = repo_config["repo"]
-                self.seen_github_commits[repo_key] = set()
+                self.seen_github_commits[repo_key] = []
 
         # TNNT API monitoring for achievements/trophies/rankings
         self.api_initialized = False
@@ -1591,7 +1591,7 @@ class DeathBotProtocol(irc.IRCClient):
                 author = author_elem.text if author_elem is not None else "unknown"
                 # Check if we've seen this commit before for this repo
                 if commit_id and title and commit_id not in self.seen_github_commits[repo]:
-                    self.seen_github_commits[repo].add(commit_id)
+                    self.seen_github_commits[repo].append(commit_id)
                     # Only announce if this is a recent check (not first run)
                     if hasattr(self, "github_initialized") and self.github_initialized:
                         # Sanitize title - remove format string placeholders
@@ -1610,9 +1610,8 @@ class DeathBotProtocol(irc.IRCClient):
             # Clean up old commits to prevent memory growth
             # Keep only the 50 most recent commit IDs per repo
             if len(self.seen_github_commits[repo]) > 50:
-                # Convert to list and keep newest 50
-                commit_list = list(self.seen_github_commits[repo])
-                self.seen_github_commits[repo] = set(commit_list[-50:])
+                # Slice to keep the newest 50 (list maintains insertion order)
+                self.seen_github_commits[repo] = self.seen_github_commits[repo][-50:]
             return new_commits
         except requests.exceptions.Timeout:
             tlog(f"Timeout checking GitHub Atom feed for {repo}")
