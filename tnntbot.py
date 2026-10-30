@@ -357,6 +357,10 @@ class DeathBotProtocol(irc.IRCClient):
     ttime = { "start": datetime(int(YEAR),11,1,0,0,0),
               "end"  : datetime(int(YEAR),12,1,0,0,0)
             }
+    # no new clans or clan joins from here on.
+    # must match CLAN_FREEZE_TIME in the backend's tnnt/settings.py
+    clanfreeze = datetime(int(YEAR),11,10,0,0,0)
+    freeze_calls = None
 
     chanLog = {}
     chanLogName = {}
@@ -458,6 +462,37 @@ class DeathBotProtocol(irc.IRCClient):
                               microseconds=nexthour.microsecond)
         hourleft = (nexthour - nowtime).total_seconds() + 0.5 # start at 0.5 seconds past the hour.
         reactor.callLater(hourleft, self.startHourly)
+        self._scheduleClanFreeze()
+
+    def _scheduleClanFreeze(self):
+        """Schedule the clan freeze warnings and the freeze announcement."""
+        freezetime = self.clanfreeze.strftime("%Y-%m-%d %H:%M UTC")
+        clanmgmt = "https://tnnt.org/clanmgmt"
+        notices = [
+            (timedelta(hours=24),
+             f"\x02CLAN FREEZE:\x0f begins in 24 hours, at {freezetime}. "
+             f"After that, no new clans can be created and no one can "
+             f"join a clan. {clanmgmt}"),
+            (timedelta(hours=1),
+             f"\x02CLAN FREEZE:\x0f begins in 1 hour! Create or join a "
+             f"clan before {freezetime}: {clanmgmt}"),
+            (timedelta(minutes=10),
+             f"\x02CLAN FREEZE:\x0f begins in 10 minutes! Last chance to "
+             f"create or join a clan: {clanmgmt}"),
+            (timedelta(0),
+             "###### CLAN FREEZE IS NOW IN EFFECT! No new clans can be "
+             "created and no one can join a clan. ######"),
+        ]
+        self.freeze_calls = []
+        nowtime = datetime.now()
+        for lead, msg in notices:
+            delay = (self.clanfreeze - lead - nowtime).total_seconds()
+            # already passed, e.g. the bot restarted after it - don't announce late
+            if delay <= 0: continue
+            self.freeze_calls.append(reactor.callLater(
+                delay, self.announce, msg, strict_tournament_time=True))
+        tlog(f"Clan freeze: {len(self.freeze_calls)} announcement(s) "
+             f"scheduled for freeze at {freezetime}")
 
     def _scheduleAPIPolling(self):
         """Schedule API polling to run every 5 minutes at :00:30, :05:30, :10:30, :15:30, etc."""
@@ -2568,6 +2603,9 @@ class DeathBotProtocol(irc.IRCClient):
                    "killed {killed_shopkeeper} on T:{turns}").format(**event)
 
     def connectionLost(self, reason=None):
+        # signedOn on the next connection schedules these again
+        for call in self.freeze_calls or []:
+            if call.active(): call.cancel()
         if self.looping_calls is None: return
         for call in self.looping_calls.values():
             call.stop()
