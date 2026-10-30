@@ -201,14 +201,18 @@ sys.stderr = TimestampedStderr(sys.stderr)
 
 # Custom dict class for shelve fallback
 class DictWithSync(dict):
-    """Dict subclass that supports sync() method for shelve compatibility.
+    """Dict subclass that supports sync() and close() for shelve compatibility.
 
     When the shelve database fails to open, we fall back to an in-memory
-    dict. This class provides a no-op sync() method so the same code can
-    work with both shelve objects and the in-memory fallback.
+    dict. This class provides no-op sync() and close() methods so the same
+    code can work with both shelve objects and the in-memory fallback.
     """
     def sync(self):
         """No-op sync method for in-memory dict fallback."""
+        pass
+
+    def close(self):
+        """No-op close method for in-memory dict fallback."""
         pass
 
 # some lookup tables for formatting messages
@@ -2603,12 +2607,17 @@ class DeathBotProtocol(irc.IRCClient):
                    "killed {killed_shopkeeper} on T:{turns}").format(**event)
 
     def connectionLost(self, reason=None):
+        # stops the PING heartbeat, which otherwise outlives this connection
+        irc.IRCClient.connectionLost(self, reason)
         # signedOn on the next connection schedules these again
         for call in self.freeze_calls or []:
             if call.active(): call.cancel()
         if self.looping_calls is None: return
         for call in self.looping_calls.values():
-            call.stop()
+            if call.running: call.stop()
+        # flush and release the $tell shelve before the next signon reopens it
+        if hasattr(self, 'tellbuf') and self.tellbuf is not None:
+            self.tellbuf.close()
 
     def updateSummary(self):
         # send most up-to-date full stats to master for milestone tracking
