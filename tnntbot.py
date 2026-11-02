@@ -99,6 +99,11 @@ try:
     from tnntbotconf import LL_TURNCOUNTS
 except ImportError:
     LL_TURNCOUNTS = {}
+# Game's LL_SPOILER livelog bit (include/global.h): the event names an
+# item the player may not have identified (Mines' End luckstone, Sokoban
+# prize, crowning spellbook, first reflection/MR source). It is only
+# present when the game's sysconf LIVELOG mask includes 0x2000.
+LL_SPOILER = 0x2000
 
 try:
     from tnntbotconf import ANNOUNCE_AFTER_DB_REBUILD
@@ -2563,6 +2568,15 @@ class DeathBotProtocol(irc.IRCClient):
             event["message"] = event["historic_event"]
 
         if "lltype" in event:
+            # Before LL_TURNCOUNTS: stripping the other bits there would
+            # leave LL_SPOILER set, so the event would still be posted.
+            if event["lltype"] & LL_SPOILER:
+                tlog("Livelog: suppressed spoiler event (lltype={lltype}) "
+                     "for {player}: {message}".format(
+                         lltype=event["lltype"],
+                         player=event.get("player", "?"),
+                         message=event.get("message", "?")))
+                return
             for t in LL_TURNCOUNTS:
                 if event["turns"] < LL_TURNCOUNTS[t]:
                     event["lltype"] &= ~t
