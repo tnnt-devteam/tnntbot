@@ -76,3 +76,10 @@ SCOREBOARDJSON = BOTDIR + "/scoreboard.json" # specify full path here
 
 # Continue to announce this many  days after tournamnet ends (though nothing in this period will count on the scoreboard)
 GRACEDAYS = 5
+
+# OPTIONAL Minimum turncounts for livelogging different event types,
+# the same as Beholder's (botconf.py). Bits: LIVELOG in the game's sysconf.
+LL_TURNCOUNTS = {
+      2: 1000, # Achievements
+     32: 3000, # Conducts
+}

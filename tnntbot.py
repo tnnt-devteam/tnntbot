@@ -92,6 +92,13 @@ try:
     from tnntbotconf import GRACEDAYS
 except ImportError:
     GRACEDAYS = 5
+# OPTIONAL minimum turncounts per livelog event type, as in
+# Beholder: {lltype bit: turns}. Below its turncount a bit is
+# dropped; an event with no bits left is not announced.
+try:
+    from tnntbotconf import LL_TURNCOUNTS
+except ImportError:
+    LL_TURNCOUNTS = {}
 
 try:
     from tnntbotconf import ANNOUNCE_AFTER_DB_REBUILD
@@ -283,7 +290,8 @@ def fixdump(s):
 
 xlogfile_parse = dict.fromkeys(
     ("points", "deathdnum", "deathlev", "maxlvl", "hp", "maxhp", "deaths",
-     "uid", "turns", "xplevel", "exp","depth","dnum","score","amulet"), int)
+     "uid", "turns", "xplevel", "exp","depth","dnum","score","amulet",
+     "lltype"), int)
 xlogfile_parse.update(dict.fromkeys(
     ("conduct", "event", "carried", "flags", "achieve"), safe_int_parse))
 
@@ -2539,6 +2547,9 @@ class DeathBotProtocol(irc.IRCClient):
             yield "##CROESUS##" + random.choice(self.croesus_croesus_wins).format(player=game.get("name", "Someone"))
 
     def livelogReport(self, event):
+        # nh500 livelog uses name instead of player
+        if "name" in event and "player" not in event:
+            event["player"] = event["name"]
         if event.get("charname", False):
             if event.get("player", False):
                 if event["player"] != event["charname"]:
@@ -2550,6 +2561,12 @@ class DeathBotProtocol(irc.IRCClient):
             if event["historic_event"].endswith("."):
                 event["historic_event"] = event["historic_event"][:-1]
             event["message"] = event["historic_event"]
+
+        if "lltype" in event:
+            for t in LL_TURNCOUNTS:
+                if event["turns"] < LL_TURNCOUNTS[t]:
+                    event["lltype"] &= ~t
+                    if not event["lltype"]: return
 
         if "message" in event:
             yield ("{player} ({role} {race} {gender} {align}) "
